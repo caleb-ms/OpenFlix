@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Maps to Android/data/com.calebms.openflix/files/Download/ -->
+    <external-files-path name="downloaded_apk" path="Download/" />
+</paths>
