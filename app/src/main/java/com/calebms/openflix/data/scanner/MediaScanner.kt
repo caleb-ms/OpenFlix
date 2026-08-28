@@ -30,6 +30,43 @@ class MediaScanner(private val context: Context) {
         db.mediaDao().insertEpisodes(episodes)
     }
 
+    suspend fun verifyLibraryAvailability() = withContext(Dispatchers.IO) {
+        val mediaItems = db.mediaDao().getAllMediaList()
+
+        // 1. Verify Movies & TV Shows
+        for (item in mediaItems) {
+            val exists = try {
+                // TV Shows track the folder URI, Movies track the file URI
+                val doc = DocumentFile.fromSingleUri(context, Uri.parse(item.localUri))
+                doc?.exists() == true
+            } catch (e: Exception) {
+                false
+            }
+
+            // Only update the database if the status has changed
+            if (item.isAvailable != exists) {
+                db.mediaDao().updateMediaAvailability(item.id, exists)
+            }
+
+            // 2. Verify Episodes for TV Shows
+            if (item.type == "TV_SHOW") {
+                val episodes = db.mediaDao().getEpisodesListForShow(item.id)
+                for (episode in episodes) {
+                    val epExists = try {
+                        val doc = DocumentFile.fromSingleUri(context, Uri.parse(episode.localFileUri))
+                        doc?.exists() == true
+                    } catch (e: Exception) {
+                        false
+                    }
+
+                    if (episode.isAvailable != epExists) {
+                        db.mediaDao().updateEpisodeAvailability(episode.id, epExists)
+                    }
+                }
+            }
+        }
+    }
+
     private suspend fun scanRecursive(
         directory: DocumentFile,
         movies: MutableList<MediaItem>,
@@ -77,7 +114,7 @@ class MediaScanner(private val context: Context) {
                                 episodeNumber = parsed.episodeNumber ?: 1,
                                 episodeTitle = "Episode ${parsed.episodeNumber}",
                                 localFileUri = file.uri.toString(),
-                                durationMs = extraction.durationMs // SAVE THE DURATION
+                                durationMs = extraction.durationMs
                             )
                         )
                     } else {

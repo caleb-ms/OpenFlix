@@ -42,6 +42,7 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
             )
 
             scanner.scanDirectory(treeUri)
+            scanner.verifyLibraryAvailability()
 
             _isScanning.value = false
             syncWithTmdb()
@@ -93,15 +94,24 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
     private fun scanPersistedFolders(showLoading: Boolean = false) {
         viewModelScope.launch {
             val persistedUris = getApplication<Application>().contentResolver.persistedUriPermissions
+
             if (persistedUris.isNotEmpty()) {
                 if (showLoading) _isScanning.value = true
-                
+
+
                 persistedUris.forEach { permission ->
                     scanner.scanDirectory(permission.uri)
                 }
-                
+
+                scanner.verifyLibraryAvailability()
+
                 if (showLoading) _isScanning.value = false
+
+
                 syncWithTmdb()
+            } else {
+
+                if (showLoading) _isScanning.value = false
             }
         }
     }

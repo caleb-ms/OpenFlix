@@ -18,10 +18,10 @@ interface ProfileDao {
 
 @Dao
 interface MediaDao {
-    @Query("SELECT * FROM media_items")
+    @Query("SELECT * FROM media_items WHERE isAvailable = 1")
     fun getAllMedia(): Flow<List<MediaItem>>
 
-    @Query("SELECT * FROM media_items WHERE type = :type")
+    @Query("SELECT * FROM media_items WHERE type = :type AND isAvailable = 1")
     fun getMediaByType(type: String): Flow<List<MediaItem>>
 
 
@@ -31,7 +31,7 @@ interface MediaDao {
     @Upsert
     suspend fun insertEpisodes(episodes: List<MediaEpisode>)
 
-    @Query("SELECT * FROM media_episodes WHERE mediaItemId = :mediaId ORDER BY seasonNumber, episodeNumber ASC")
+    @Query("SELECT * FROM media_episodes WHERE mediaItemId = :mediaId AND isAvailable = 1 ORDER BY seasonNumber, episodeNumber ASC")
     fun getEpisodesForShow(mediaId: String): Flow<List<MediaEpisode>>
 
     @Query("SELECT * FROM media_items WHERE isTmdbSyncAttempted = 0")
@@ -43,6 +43,12 @@ interface MediaDao {
     // Fetch episodes synchronously for background processing in the sync worker
     @Query("SELECT * FROM media_episodes WHERE mediaItemId = :mediaId")
     suspend fun getEpisodesListForShow(mediaId: String): List<MediaEpisode>
+
+    @Query("UPDATE media_items SET isAvailable = :isAvailable WHERE id = :id")
+    suspend fun updateMediaAvailability(id: String, isAvailable: Boolean)
+
+    @Query("UPDATE media_episodes SET isAvailable = :isAvailable WHERE id = :id")
+    suspend fun updateEpisodeAvailability(id: String, isAvailable: Boolean)
 }
 
 @Dao

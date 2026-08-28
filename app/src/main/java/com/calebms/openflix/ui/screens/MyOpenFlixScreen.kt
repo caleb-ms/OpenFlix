@@ -65,7 +65,7 @@ fun MyOpenFlixScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF141414))
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         contentPadding = PaddingValues(top = 40.dp, bottom = 100.dp)
     ) {
 
@@ -267,6 +267,15 @@ fun MyOpenFlixScreen(
                 SettingsLinkRow(title = "Disclaimer", url = "https://openflix.calebms.com/disclaimer", uriHandler = uriHandler)
             }
             Spacer(modifier = Modifier.height(24.dp))
+
+            OutlinedButton(
+                onClick = onSwitchProfileClick,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333333))
+            ) {
+                Text("Switch Profile", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
