@@ -7,6 +7,8 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -14,7 +16,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -47,6 +53,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalContext
 
+
 data class MediaTrack(
     val group: androidx.media3.common.Tracks.Group,
     val trackIndex: Int,
@@ -61,6 +68,7 @@ fun VideoPlayerScreen(
     title: String,
     overview: String?,
     startPositionMs: Long = 0L,
+    autoDetectedSubtitleUri: String? = null,
     onNavigateBack: () -> Unit,
     onNextEpisode: (() -> Unit)? = null,
     onSaveProgress: (positionMs: Long, durationMs: Long, isFinished: Boolean) -> Unit
@@ -77,6 +85,8 @@ fun VideoPlayerScreen(
     var currentTimeMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var isSeeking by remember { mutableStateOf(false) }
+    var showUpNextPrompt by remember { mutableStateOf(false) }
+    var upNextCancelled by remember { mutableStateOf(false) }
 
     // Gesture & Animation States
     var resizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -92,6 +102,21 @@ fun VideoPlayerScreen(
     var showAudioDialog by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
     var isPlayerReady by remember { mutableStateOf(false) }
+    var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
+    var currentLoadedVideoUri by remember { mutableStateOf<String?>(null) }
+
+    val subtitlePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            if (uri != null) {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                externalSubtitleUri = uri
+            }
+        }
+    )
 
 
     val exoPlayer = remember {
@@ -143,13 +168,50 @@ fun VideoPlayerScreen(
     }
 
 
-    LaunchedEffect(videoUri) {
-        isPlayerReady = false
-        exoPlayer.stop()
-        exoPlayer.setMediaItem(androidx.media3.common.MediaItem.fromUri(Uri.parse(videoUri)))
-        if (startPositionMs > 0L) {
-            exoPlayer.seekTo(startPositionMs)
+    LaunchedEffect(videoUri, externalSubtitleUri, autoDetectedSubtitleUri) {
+        val isNewVideo = currentLoadedVideoUri != videoUri
+        currentLoadedVideoUri = videoUri
+
+        val currentTargetPosition = if (isNewVideo) {
+            currentTimeMs = startPositionMs
+            startPositionMs
+        } else {
+            if (isPlayerReady && currentTimeMs > 0L) currentTimeMs else startPositionMs
         }
+
+
+        if (isNewVideo) {
+            externalSubtitleUri = null
+            durationMs = 0L
+        }
+
+        isPlayerReady = false
+        showUpNextPrompt = false
+        upNextCancelled = false
+
+        val mediaItemBuilder = androidx.media3.common.MediaItem.Builder()
+            .setUri(Uri.parse(videoUri))
+
+        val activeSubtitleUri: Any? = externalSubtitleUri ?: autoDetectedSubtitleUri
+
+        activeSubtitleUri?.let { subUriStr ->
+            val subUri = if (subUriStr is Uri) subUriStr else Uri.parse(subUriStr.toString())
+            val isVtt = subUri.toString().lowercase().endsWith(".vtt")
+            val mimeType = if (isVtt) androidx.media3.common.MimeTypes.TEXT_VTT else androidx.media3.common.MimeTypes.APPLICATION_SUBRIP
+
+            val subtitleConfig = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(subUri)
+                .setMimeType(mimeType)
+                .setLanguage("English")
+                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                .build()
+
+            mediaItemBuilder.setSubtitleConfigurations(listOf(subtitleConfig))
+        }
+
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        exoPlayer.setMediaItem(mediaItemBuilder.build())
+        exoPlayer.seekTo(currentTargetPosition.coerceAtLeast(0L))
         exoPlayer.prepare()
         exoPlayer.play()
     }
@@ -190,7 +252,6 @@ fun VideoPlayerScreen(
 
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Heartbeat: Saves every 10 seconds
     LaunchedEffect(isPlaying, isPlayerReady) {
         while (isActive && isPlaying && isPlayerReady) {
             delay(10000)
@@ -227,6 +288,19 @@ fun VideoPlayerScreen(
     LaunchedEffect(isPlaying, isSeeking) {
         while (isActive && isPlaying && !isSeeking) {
             currentTimeMs = exoPlayer.currentPosition
+
+            if (onNextEpisode != null && durationMs > 0) {
+                val threshold = (durationMs * 0.96).toLong()
+
+                if (currentTimeMs >= threshold) {
+                    if (!upNextCancelled) {
+                        showUpNextPrompt = true
+                    }
+                } else {
+                    showUpNextPrompt = false
+                    upNextCancelled = false
+                }
+            }
             delay(1000)
         }
     }
@@ -289,7 +363,10 @@ fun VideoPlayerScreen(
                             showSeekAnimation = true
                         },
                         onTap = {
-                            if (showPauseOverlay) {
+                            if (showUpNextPrompt) {
+                                upNextCancelled = true
+                                showUpNextPrompt = false
+                            } else if (showPauseOverlay) {
                                 showPauseOverlay = false
                                 showControls = true
                             } else {
@@ -340,6 +417,8 @@ fun VideoPlayerScreen(
             }
         }
 
+
+
         // Custom Controls
         AnimatedVisibility(
             visible = showControls && !showPauseOverlay,
@@ -383,8 +462,8 @@ fun VideoPlayerScreen(
                     ) {
                         PlayerActionButton(Icons.Default.Speed, "${currentSpeed}x") { showSpeedDialog = true }
 
-                        if (subtitleTracks.isNotEmpty()) {
-                            PlayerActionButton(Icons.Default.ClosedCaption, "Subtitles") { showSubtitleDialog = true }
+                        PlayerActionButton(Icons.Default.ClosedCaption, "Subtitles") {
+                            showSubtitleDialog = true
                         }
                         if (audioTracks.isNotEmpty()) {
                             PlayerActionButton(Icons.Default.Audiotrack, "Audio") { showAudioDialog = true }
@@ -398,7 +477,27 @@ fun VideoPlayerScreen(
             }
         }
 
-
+        // Up Next Prompt (Floating Pill)
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showUpNextPrompt,
+            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 48.dp, end = 48.dp)
+        ) {
+            UpNextPill(
+                episodeKey = videoUri,
+                onNextEpisode = {
+                    showUpNextPrompt = false
+                    onNextEpisode?.invoke()
+                },
+                onCancel = {
+                    upNextCancelled = true
+                    showUpNextPrompt = false
+                }
+            )
+        }
 
         if (showSpeedDialog) {
             TrackSelectionDialog(
@@ -436,6 +535,11 @@ fun VideoPlayerScreen(
                     if (index == 0) selectTrack(C.TRACK_TYPE_TEXT, null)
                     else selectTrack(C.TRACK_TYPE_TEXT, subtitleTracks[index - 1])
                     showSubtitleDialog = false
+                },
+                onLoadExternal = {
+                    showSubtitleDialog = false
+
+                    subtitlePicker.launch(arrayOf("application/x-subrip", "text/vtt", "application/octet-stream"))
                 }
             )
         }
@@ -448,7 +552,8 @@ fun TrackSelectionDialog(
     options: List<String>,
     selectedIndex: Int,
     onDismiss: () -> Unit,
-    onSelect: (Int) -> Unit
+    onSelect: (Int) -> Unit,
+    onLoadExternal: (() -> Unit)? = null
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -468,12 +573,26 @@ fun TrackSelectionDialog(
                         )
                     }
                 }
+
+
+                if (onLoadExternal != null) {
+                    Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
+                    TextButton(
+                        onClick = { onLoadExternal() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Load External Subtitle...", color = Color.LightGray, fontSize = 16.sp)
+                        }
+                    }
+                }
             }
         },
         confirmButton = {}
     )
 }
-
 @Composable
 fun PlayerActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     Column(
@@ -493,4 +612,103 @@ fun formatPlayerTime(ms: Long): String {
     val seconds = totalSeconds % 60
     return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds)
     else String.format("%02d:%02d", minutes, seconds)
+}
+
+@Composable
+fun UpNextPill(
+    episodeKey: String,
+    onNextEpisode: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val progress = remember { Animatable(0f) }
+
+    LaunchedEffect(episodeKey) {
+        progress.snapTo(0f)
+
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 10_000,
+                easing = LinearEasing
+            )
+        )
+
+        onNextEpisode()
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(5.dp))
+                .background(Color(0xFF555555))
+                .clickable { onCancel() }
+                .padding(
+                    horizontal = 14.dp,
+                    vertical = 8.dp
+                )
+        ) {
+            Text(
+                text = "Watch Credits",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(5.dp))
+                .background(Color.White)
+                .clickable { onNextEpisode() }
+        ) {
+
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .drawBehind {
+                        val remainingWidth =
+                            size.width * (1f - progress.value)
+
+                        drawRect(
+                            color = Color(0xFFBDBDBD),
+                            topLeft = androidx.compose.ui.geometry.Offset(
+                                x = size.width - remainingWidth,
+                                y = 0f
+                            ),
+                            size = size.copy(
+                                width = remainingWidth
+                            )
+                        )
+                    }
+            )
+
+            Row(
+                modifier = Modifier.padding(
+                    horizontal = 14.dp,
+                    vertical = 8.dp
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.Black,
+                    modifier = Modifier.size(22.dp)
+                )
+
+                Text(
+                    text = "Next Episode",
+                    color = Color.Black,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
 }

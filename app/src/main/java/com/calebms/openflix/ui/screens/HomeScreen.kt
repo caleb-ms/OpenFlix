@@ -27,8 +27,12 @@ import coil.compose.AsyncImage
 import com.calebms.openflix.data.local.entities.MediaItem
 
 @Composable
-fun NetflixHomeScreen(
+fun HomeScreen(
     mediaList: List<MediaItem>,
+    criticallyAcclaimed: List<MediaItem> = emptyList(),
+    throwbacks: List<MediaItem> = emptyList(),
+    quickWatches: List<MediaItem> = emptyList(),
+    unplayedGems: List<MediaItem> = emptyList(),
     onMediaClick: (MediaItem) -> Unit,
     onPickFolderClick: () -> Unit
 ) {
@@ -41,7 +45,6 @@ fun NetflixHomeScreen(
             .fillMaxSize()
             .background(Color(0xFF141414))
     ) {
-
         item {
             if (featuredItem != null) {
                 HeroBillboard(item = featuredItem, onPlayClick = { onMediaClick(featuredItem) })
@@ -51,11 +54,33 @@ fun NetflixHomeScreen(
         }
 
 
+        if (unplayedGems.isNotEmpty()) {
+            item {
+                MediaSectionRow(
+                    sectionTitle = "Unplayed Gems",
+                    items = unplayedGems,
+                    onItemClick = onMediaClick
+                )
+            }
+        }
+
+
         if (movies.isNotEmpty()) {
             item {
                 MediaSectionRow(
                     sectionTitle = "Movies",
                     items = movies,
+                    onItemClick = onMediaClick
+                )
+            }
+        }
+
+
+        if (criticallyAcclaimed.isNotEmpty()) {
+            item {
+                MediaSectionRow(
+                    sectionTitle = "Critically Acclaimed ★",
+                    items = criticallyAcclaimed,
                     onItemClick = onMediaClick
                 )
             }
@@ -73,6 +98,28 @@ fun NetflixHomeScreen(
         }
 
 
+        if (quickWatches.isNotEmpty()) {
+            item {
+                MediaSectionRow(
+                    sectionTitle = "Quick Watches (< 30 mins)",
+                    items = quickWatches,
+                    onItemClick = onMediaClick
+                )
+            }
+        }
+
+
+        if (throwbacks.isNotEmpty()) {
+            item {
+                MediaSectionRow(
+                    sectionTitle = "Throwbacks & Classics",
+                    items = throwbacks,
+                    onItemClick = onMediaClick
+                )
+            }
+        }
+
+
         if (mediaList.isNotEmpty()) {
             item {
                 MediaSectionRow(
@@ -84,7 +131,7 @@ fun NetflixHomeScreen(
         }
 
         item {
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(100.dp))
         }
     }
 }

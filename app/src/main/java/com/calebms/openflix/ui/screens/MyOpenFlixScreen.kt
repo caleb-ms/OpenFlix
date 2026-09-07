@@ -1,4 +1,5 @@
 package com.calebms.openflix.ui.screens
+import com.calebms.openflix.BuildConfig
 
 import android.content.Context
 import androidx.compose.foundation.background
@@ -247,13 +248,16 @@ fun MyOpenFlixScreen(
 
                 Divider(color = Color(0xFF333333), modifier = Modifier.padding(vertical = 12.dp))
 
-                SettingsActionRow(
-                    icon = Icons.Default.SystemUpdate,
-                    title = "Check for Updates",
-                    onClick = onCheckForUpdatesClick
-                )
+                if (BuildConfig.ENABLE_IN_APP_UPDATER) {
+                    SettingsActionRow(
+                        icon = Icons.Default.SystemUpdate,
+                        title = "Check for Updates",
+                        onClick = onCheckForUpdatesClick
+                    )
+                    Divider(color = Color(0xFF333333), modifier = Modifier.padding(vertical = 12.dp))
+                }
 
-                Divider(color = Color(0xFF333333), modifier = Modifier.padding(vertical = 12.dp))
+
                 SettingsLinkRow(title = "Github", url="https://github.com/caleb-ms/OpenFlix.git", uriHandler = uriHandler)
 
                 Divider(color = Color(0xFF333333), modifier = Modifier.padding(vertical = 12.dp))

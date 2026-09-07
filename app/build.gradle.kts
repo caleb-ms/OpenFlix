@@ -14,8 +14,8 @@ android {
         applicationId = "com.calebms.openflix"
         minSdk = 26
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,13 +32,31 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
+
+    flavorDimensions += "distribution"
+
+    productFlavors {
+        create("playstore") {
+            dimension = "distribution"
+
+            buildConfigField("Boolean", "ENABLE_IN_APP_UPDATER", "false")
+        }
+        create("github") {
+            dimension = "distribution"
+
+            buildConfigField("Boolean", "ENABLE_IN_APP_UPDATER", "true")
+        }
+    }
 }
+
 
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.compose.foundation.layout)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.material.icons.extended)

@@ -25,9 +25,16 @@ fun FilteredHomeScreen(
     onMediaClick: (MediaItem) -> Unit
 ) {
     val allMedia by viewModel.allMedia.collectAsState()
+    val criticallyAcclaimed by viewModel.criticallyAcclaimed.collectAsState()
+    val throwbacks by viewModel.throwbacks.collectAsState()
+    val quickWatches by viewModel.quickWatches.collectAsState()
 
-    val continueWatchingStatuses by viewModel.getContinueWatching(profile.id).collectAsState(initial = emptyList<PlaybackStatus>())
+    val unplayedGems by remember(profile.id) {
+        viewModel.getUnplayedGems(profile.id)
+    }.collectAsState(initial = emptyList())
 
+    val continueWatchingStatuses by viewModel.getContinueWatching(profile.id)
+        .collectAsState(initial = emptyList<PlaybackStatus>())
 
     val continueWatchingMedia = remember(continueWatchingStatuses, allMedia) {
         continueWatchingStatuses.mapNotNull { status ->
@@ -38,15 +45,21 @@ fun FilteredHomeScreen(
     var selectedFilter by remember { mutableStateOf("All") }
     val filters = listOf("All", "Shows", "Movies")
 
-    val displayedMedia = remember(selectedFilter, allMedia) {
-        when (selectedFilter) {
-            "Movies" -> allMedia.filter { it.type == "MOVIE" }
-            "Shows" -> allMedia.filter { it.type == "TV_SHOW" }
-            else -> allMedia
+    fun filterList(items: List<MediaItem>): List<MediaItem> {
+        return when (selectedFilter) {
+            "Movies" -> items.filter { it.type == "MOVIE" }
+            "Shows" -> items.filter { it.type == "TV_SHOW" }
+            else -> items
         }
     }
 
-    val featuredItem = displayedMedia.firstOrNull()
+    val displayedRecentlyAdded = remember(selectedFilter, allMedia) { filterList(allMedia) }
+    val displayedUnplayedGems = remember(selectedFilter, unplayedGems) { filterList(unplayedGems) }
+    val displayedCriticallyAcclaimed = remember(selectedFilter, criticallyAcclaimed) { filterList(criticallyAcclaimed) }
+    val displayedQuickWatches = remember(selectedFilter, quickWatches) { filterList(quickWatches) }
+    val displayedThrowbacks = remember(selectedFilter, throwbacks) { filterList(throwbacks) }
+
+    val featuredItem = displayedRecentlyAdded.firstOrNull()
 
     Column(
         modifier = Modifier
@@ -86,31 +99,63 @@ fun FilteredHomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
 
-
             if (continueWatchingMedia.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(16.dp))
                 MediaSectionRow(
                     sectionTitle = "Continue Watching for ${profile.name}",
-                    items = continueWatchingMedia,
-                    onItemClick = { clickedItem -> onMediaClick(clickedItem) }
+                    items = filterList(continueWatchingMedia),
+                    onItemClick = onMediaClick
                 )
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
-            // TODO: Render Continue Watching Row...
+            if (displayedUnplayedGems.isNotEmpty()) {
+                MediaSectionRow(
+                    sectionTitle = "Unplayed Gems",
+                    items = displayedUnplayedGems,
+                    onItemClick = onMediaClick
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
-            MediaSectionRow(
-                sectionTitle = if (selectedFilter == "All") "Recently Added" else selectedFilter,
-                items = displayedMedia,
-                onItemClick = { clickedItem -> onMediaClick(clickedItem) }
-            )
+            if (displayedRecentlyAdded.isNotEmpty()) {
+                MediaSectionRow(
+                    sectionTitle = if (selectedFilter == "All") "Recently Added" else selectedFilter,
+                    items = displayedRecentlyAdded,
+                    onItemClick = onMediaClick
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
+            if (displayedCriticallyAcclaimed.isNotEmpty()) {
+                MediaSectionRow(
+                    sectionTitle = "Critically Acclaimed ★",
+                    items = displayedCriticallyAcclaimed,
+                    onItemClick = onMediaClick
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            if (displayedQuickWatches.isNotEmpty()) {
+                MediaSectionRow(
+                    sectionTitle = "Quick Watches (< 30 mins)",
+                    items = displayedQuickWatches,
+                    onItemClick = onMediaClick
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            if (displayedThrowbacks.isNotEmpty()) {
+                MediaSectionRow(
+                    sectionTitle = "Throwbacks & Classics",
+                    items = displayedThrowbacks,
+                    onItemClick = onMediaClick
+                )
+            }
 
             Spacer(modifier = Modifier.height(100.dp))
         }
     }
 }
-
-
 
 @Composable
 fun FilterPill(label: String, isSelected: Boolean, onClick: () -> Unit) {

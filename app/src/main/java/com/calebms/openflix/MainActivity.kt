@@ -59,7 +59,6 @@ fun OpenFlixApp(
         val mediaList by scannerViewModel.allMedia.collectAsState()
         val isScanning by scannerViewModel.isScanning.collectAsState()
 
-        // 2. Folder Picker Setup
         val folderPickerLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.OpenDocumentTree()
         ) { uri: Uri? ->

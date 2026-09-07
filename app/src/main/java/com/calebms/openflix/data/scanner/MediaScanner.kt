@@ -15,16 +15,22 @@ class MediaScanner(private val context: Context) {
 
     private val db = AppDatabase.getDatabase(context)
     private val supportedExtensions = setOf("mp4", "mkv", "avi", "webm", "mov")
+    private val supportedSubExtensions = setOf("srt", "vtt")
 
     suspend fun scanDirectory(treeUri: Uri) = withContext(Dispatchers.IO) {
-        val rootDoc = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext
+        if (!android.provider.DocumentsContract.isTreeUri(treeUri)) return@withContext
+
+        val rootDoc = try {
+            DocumentFile.fromTreeUri(context, treeUri)
+        } catch (e: IllegalArgumentException) {
+            null
+        } ?: return@withContext
 
         val movies = mutableListOf<MediaItem>()
         val tvShows = mutableMapOf<String, MediaItem>()
         val episodes = mutableListOf<MediaEpisode>()
 
         scanRecursive(rootDoc, movies, tvShows, episodes)
-
 
         db.mediaDao().insertMediaItems(movies + tvShows.values)
         db.mediaDao().insertEpisodes(episodes)
@@ -33,22 +39,18 @@ class MediaScanner(private val context: Context) {
     suspend fun verifyLibraryAvailability() = withContext(Dispatchers.IO) {
         val mediaItems = db.mediaDao().getAllMediaList()
 
-        // 1. Verify Movies & TV Shows
         for (item in mediaItems) {
             val exists = try {
-                // TV Shows track the folder URI, Movies track the file URI
                 val doc = DocumentFile.fromSingleUri(context, Uri.parse(item.localUri))
                 doc?.exists() == true
             } catch (e: Exception) {
                 false
             }
 
-            // Only update the database if the status has changed
             if (item.isAvailable != exists) {
                 db.mediaDao().updateMediaAvailability(item.id, exists)
             }
 
-            // 2. Verify Episodes for TV Shows
             if (item.type == "TV_SHOW") {
                 val episodes = db.mediaDao().getEpisodesListForShow(item.id)
                 for (episode in episodes) {
@@ -73,7 +75,16 @@ class MediaScanner(private val context: Context) {
         tvShows: MutableMap<String, MediaItem>,
         episodes: MutableList<MediaEpisode>
     ) {
-        directory.listFiles().forEach { file ->
+        val allFiles = directory.listFiles()
+
+        val subtitleFiles = allFiles.filter { file ->
+            val ext = file.name?.substringAfterLast(".", "")?.lowercase()
+            ext in supportedSubExtensions
+        }.associateBy { file ->
+            file.name?.substringBeforeLast(".") ?: ""
+        }
+
+        allFiles.forEach { file ->
             if (file.isDirectory) {
                 scanRecursive(file, movies, tvShows, episodes)
             } else if (file.isFile) {
@@ -81,6 +92,8 @@ class MediaScanner(private val context: Context) {
                 if (ext in supportedExtensions) {
                     val parsed = MediaParser.parse(file.name ?: "")
 
+                    val baseName = file.name?.substringBeforeLast(".") ?: ""
+                    val matchingSubtitle = subtitleFiles[baseName]?.uri?.toString()
 
                     if (parsed.isTvShow) {
                         val showKey = parsed.cleanTitle.lowercase()
@@ -114,7 +127,8 @@ class MediaScanner(private val context: Context) {
                                 episodeNumber = parsed.episodeNumber ?: 1,
                                 episodeTitle = "Episode ${parsed.episodeNumber}",
                                 localFileUri = file.uri.toString(),
-                                durationMs = extraction.durationMs
+                                durationMs = extraction.durationMs,
+                                subtitleUri = matchingSubtitle
                             )
                         )
                     } else {
@@ -132,7 +146,8 @@ class MediaScanner(private val context: Context) {
                                 releaseYear = parsed.releaseYear,
                                 localUri = file.uri.toString(),
                                 posterPath = extraction.posterPath,
-                                durationMs = extraction.durationMs
+                                durationMs = extraction.durationMs,
+                                subtitleUri = matchingSubtitle
                             )
                         )
                     }

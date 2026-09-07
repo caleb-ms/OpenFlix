@@ -68,11 +68,13 @@ class TmdbSyncManager(context: Context) {
         val response = tmdbApi.searchMovie(apiKey = apiKey, query = item.title, year = item.releaseYear)
         val bestMatch = response.results.firstOrNull()
 
+
         if (bestMatch != null) {
             Log.d("TmdbSync", "Found match for ${item.title}: ${bestMatch.title} (ID: ${bestMatch.id})")
             
 
             val extractedYear = bestMatch.release_date?.take(4)?.toIntOrNull()
+            val parsedGenres = resolveGenres(bestMatch.genre_ids)
             
             val updatedItem = item.copy(
                 tmdbId = bestMatch.id,
@@ -81,6 +83,7 @@ class TmdbSyncManager(context: Context) {
                 backdropPath = bestMatch.backdrop_path?.let { "https://image.tmdb.org/t/p/w1280$it" },
                 voteAverage = bestMatch.vote_average,
                 releaseYear = item.releaseYear ?: extractedYear,
+                genres = parsedGenres,
                 isTmdbSyncAttempted = true
             )
             mediaDao.insertMediaItems(listOf(updatedItem))
@@ -110,6 +113,7 @@ class TmdbSyncManager(context: Context) {
 
 
         val extractedYear = bestShowMatch.first_air_date?.take(4)?.toIntOrNull()
+        val parsedGenres = resolveGenres(bestShowMatch.genre_ids)
 
 
         val updatedShow = item.copy(
@@ -119,6 +123,7 @@ class TmdbSyncManager(context: Context) {
             backdropPath = bestShowMatch.backdrop_path?.let { "https://image.tmdb.org/t/p/w1280$it" },
             voteAverage = bestShowMatch.vote_average,
             releaseYear = item.releaseYear ?: extractedYear,
+            genres = parsedGenres,
             isTmdbSyncAttempted = true
         )
         mediaDao.insertMediaItems(listOf(updatedShow))
@@ -167,4 +172,24 @@ class TmdbSyncManager(context: Context) {
             mediaDao.insertEpisodes(updatedEpisodes)
         }
     }
+
+    companion object {
+        val TMDB_GENRES = mapOf(
+            28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy",
+            80 to "Crime", 99 to "Documentary", 18 to "Drama", 10751 to "Family",
+            14 to "Fantasy", 36 to "History", 27 to "Horror", 10402 to "Music",
+            9648 to "Mystery", 10749 to "Romance", 878 to "Sci-Fi",
+            10770 to "TV Movie", 53 to "Thriller", 10752 to "War", 37 to "Western",
+            10759 to "Action & Adventure", 10762 to "Kids", 10763 to "News",
+            10764 to "Reality", 10765 to "Sci-Fi & Fantasy", 10766 to "Soap",
+            10767 to "Talk", 10768 to "War & Politics"
+        )
+
+        fun resolveGenres(genreIds: List<Int>?): String? {
+            if (genreIds.isNullOrEmpty()) return null
+            val names = genreIds.mapNotNull { TMDB_GENRES[it] }
+            return if (names.isNotEmpty()) names.joinToString(", ") else null
+        }
+    }
 }
+

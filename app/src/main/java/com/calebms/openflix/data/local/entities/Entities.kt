@@ -30,7 +30,9 @@ data class MediaItem(
     val backdropPath: String? = null,
     val voteAverage: Double? = null,
     val isTmdbSyncAttempted: Boolean = false,
-    val isAvailable: Boolean = true
+    val isAvailable: Boolean = true,
+    val subtitleUri: String? = null,
+    val genres: String? = null
 
 )
 
@@ -59,7 +61,8 @@ data class MediaEpisode(
     val tmdbEpisodeId: Int? = null,
     val episodeOverview: String? = null,
     val stillPath: String? = null,
-    val isAvailable: Boolean = true
+    val isAvailable: Boolean = true,
+    val subtitleUri: String? = null
 )
 
 

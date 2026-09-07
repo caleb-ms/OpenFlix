@@ -52,6 +52,7 @@ fun MainScaffold(
     var activeVideoTitle by remember { mutableStateOf("") }
     var activeVideoOverview by remember { mutableStateOf<String?>(null) }
     var activeStartPositionMs by remember { mutableLongStateOf(0L) }
+    var activeSubtitleUri by remember { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
     val updateManager = remember { UpdateManager(context) }
@@ -76,31 +77,35 @@ fun MainScaffold(
 
         val activeEpisodeId = episodes.find { it.localFileUri == activeVideoUri }?.id
 
-        VideoPlayerScreen(
-            videoUri = activeVideoUri!!,
-            title = activeVideoTitle,
-            overview = activeVideoOverview,
-            startPositionMs = activeStartPositionMs,
-            onNavigateBack = { activeVideoUri = null },
-            onNextEpisode = if (nextEpisode != null) {
-                {
-                    activeVideoUri = nextEpisode.localFileUri
-                    activeVideoTitle = nextEpisode.episodeTitle ?: "Episode ${nextEpisode.episodeNumber}"
+        // key() forces a clean teardown of ExoPlayer and all internal states per video URI
+        key(activeVideoUri) {
+            VideoPlayerScreen(
+                videoUri = activeVideoUri!!,
+                title = activeVideoTitle,
+                overview = activeVideoOverview,
+                startPositionMs = activeStartPositionMs,
+                autoDetectedSubtitleUri = activeSubtitleUri,
+                onNavigateBack = { activeVideoUri = null },
+                onNextEpisode = if (nextEpisode != null) {
+                    {
+                        activeStartPositionMs = 0L // FIX: Reset start position for next episode!
+                        activeVideoUri = nextEpisode.localFileUri
+                        activeVideoTitle = "${selectedMedia?.title} - S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}"
+                        activeSubtitleUri = nextEpisode.subtitleUri
+                    }
+                } else null,
+                onSaveProgress = { positionMs, durationMs, isFinished ->
+                    scannerViewModel.savePlaybackProgress(
+                        profileId = activeProfile.id,
+                        mediaId = selectedMedia!!.id,
+                        episodeId = activeEpisodeId,
+                        positionMs = positionMs,
+                        durationMs = durationMs,
+                        isFinished = isFinished
+                    )
                 }
-            } else null,
-
-
-            onSaveProgress = { positionMs, durationMs, isFinished ->
-                scannerViewModel.savePlaybackProgress(
-                    profileId = activeProfile.id,
-                    mediaId = selectedMedia!!.id,
-                    episodeId = activeEpisodeId,
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    isFinished = isFinished
-                )
-            }
-        )
+            )
+        }
     }
 
     else if (selectedMedia != null) {
@@ -116,11 +121,12 @@ fun MainScaffold(
             episodes = episodes,
             playbackStatuses = playbackStatuses,
             onBackClick = { selectedMedia = null },
-            onPlayClick = { uri, title, overview, startPositionMs ->
+            onPlayClick = { uri, title, overview, startPositionMs, subtitleUri ->
                 activeVideoUri = uri
                 activeVideoTitle = title
                 activeVideoOverview = overview
                 activeStartPositionMs = startPositionMs
+                activeSubtitleUri = subtitleUri
             }
         )
     } else {

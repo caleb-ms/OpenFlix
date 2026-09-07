@@ -10,6 +10,8 @@
 .cxx
 local.properties
 /release
+/.idea
+/.artifacts
 # Keystore files
 *.jks
 *.keystore

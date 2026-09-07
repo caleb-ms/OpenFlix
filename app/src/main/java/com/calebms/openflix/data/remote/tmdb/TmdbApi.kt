@@ -19,7 +19,8 @@ data class TmdbSearchResult(
     val backdrop_path: String?,
     val vote_average: Double?,
     val release_date: String? = null,
-    val first_air_date: String? = null
+    val first_air_date: String? = null,
+    val genre_ids: List<Int>? = null
 )
 
 data class TmdbSeasonDetailsResponse(

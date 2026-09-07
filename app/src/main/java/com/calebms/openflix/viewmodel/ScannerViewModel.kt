@@ -32,6 +32,19 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
+    val criticallyAcclaimed: StateFlow<List<MediaItem>> = db.mediaDao().getCriticallyAcclaimed()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val throwbacks: StateFlow<List<MediaItem>> = db.mediaDao().getThrowbacks()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val quickWatches: StateFlow<List<MediaItem>> = db.mediaDao().getQuickWatches()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun getUnplayedGems(profileId: Int): Flow<List<MediaItem>> {
+        return db.mediaDao().getUnplayedGems(profileId)
+    }
+
     fun scanFolder(treeUri: Uri) {
         viewModelScope.launch {
             _isScanning.value = true
@@ -95,22 +108,22 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val persistedUris = getApplication<Application>().contentResolver.persistedUriPermissions
 
-            if (persistedUris.isNotEmpty()) {
+            val folderUris = persistedUris.filter { permission ->
+                android.provider.DocumentsContract.isTreeUri(permission.uri)
+            }
+
+            if (folderUris.isNotEmpty()) {
                 if (showLoading) _isScanning.value = true
 
-
-                persistedUris.forEach { permission ->
+                folderUris.forEach { permission ->
                     scanner.scanDirectory(permission.uri)
                 }
 
                 scanner.verifyLibraryAvailability()
 
                 if (showLoading) _isScanning.value = false
-
-
                 syncWithTmdb()
             } else {
-
                 if (showLoading) _isScanning.value = false
             }
         }

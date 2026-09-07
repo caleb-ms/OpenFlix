@@ -41,7 +41,7 @@ fun MediaDetailScreen(
     episodes: List<MediaEpisode>,
     playbackStatuses: List<PlaybackStatus>,
     onBackClick: () -> Unit,
-    onPlayClick: (videoUri: String, title: String, overview: String?, startPositionMs: Long) -> Unit
+    onPlayClick: (videoUri: String, title: String, overview: String?, startPositionMs: Long, subtitleUri: String?) -> Unit
 ) {
     BackHandler { onBackClick() }
 
@@ -165,6 +165,29 @@ fun MediaDetailScreen(
                                 )
                             }
                         }
+
+                    }
+
+                    if (!item.genres.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            item.genres.split(",").map { it.trim() }.forEach { genre ->
+                                Surface(
+                                    color = Color(0xFF262626),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = genre,
+                                        color = Color.LightGray,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -180,18 +203,19 @@ fun MediaDetailScreen(
 
                     Button(
                         onClick = {
-                            val targetUri = if (item.type == "TV_SHOW") {
+                            val targetEpisode = if (item.type == "TV_SHOW") {
                                 val targetEpisodeId = activeStatus?.episodeId ?: episodes.firstOrNull()?.id
-                                episodes.find { it.id == targetEpisodeId }?.localFileUri ?: item.localUri
-                            } else {
-                                item.localUri
-                            }
+                                episodes.find { it.id == targetEpisodeId }
+                            } else null
+
+                            val targetUri = targetEpisode?.localFileUri ?: item.localUri
+                            val targetSubtitleUri = targetEpisode?.subtitleUri ?: item.subtitleUri
+
                             val playTitle = if (item.type == "TV_SHOW") {
-                                val ep = episodes.find { it.localFileUri == targetUri }
-                                if (ep != null) "${item.title} - S${ep.seasonNumber}E${ep.episodeNumber}" else item.title
+                                if (targetEpisode != null) "${item.title} - S${targetEpisode.seasonNumber}E${targetEpisode.episodeNumber}" else item.title
                             } else item.title
 
-                            onPlayClick(targetUri, playTitle, item.overview, lastPositionMs)
+                            onPlayClick(targetUri, playTitle, item.overview, lastPositionMs, targetSubtitleUri)
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White),
@@ -244,7 +268,8 @@ fun MediaDetailScreen(
                                 episode.localFileUri,
                                 "${item.title} - S${episode.seasonNumber}E${episode.episodeNumber}",
                                 item.overview,
-                                epStatus?.lastPositionMs ?: 0L
+                                epStatus?.lastPositionMs ?: 0L,
+                                episode.subtitleUri
                             )
                         }
                     )

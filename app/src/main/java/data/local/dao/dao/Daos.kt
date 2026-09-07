@@ -40,7 +40,6 @@ interface MediaDao {
     @Query("SELECT * FROM media_items")
     suspend fun getAllMediaList(): List<MediaItem>
 
-    // Fetch episodes synchronously for background processing in the sync worker
     @Query("SELECT * FROM media_episodes WHERE mediaItemId = :mediaId")
     suspend fun getEpisodesListForShow(mediaId: String): List<MediaEpisode>
 
@@ -49,6 +48,24 @@ interface MediaDao {
 
     @Query("UPDATE media_episodes SET isAvailable = :isAvailable WHERE id = :id")
     suspend fun updateEpisodeAvailability(id: String, isAvailable: Boolean)
+
+    @Query("SELECT * FROM media_items WHERE isAvailable = 1 AND voteAverage >= 7.5 ORDER BY voteAverage DESC LIMIT 15")
+    fun getCriticallyAcclaimed(): Flow<List<MediaItem>>
+
+    @Query("SELECT * FROM media_items WHERE isAvailable = 1 AND releaseYear < 2010 ORDER BY releaseYear DESC LIMIT 15")
+    fun getThrowbacks(): Flow<List<MediaItem>>
+
+    @Query("SELECT * FROM media_items WHERE isAvailable = 1 AND durationMs > 0 AND durationMs <= 1800000 ORDER BY RANDOM() LIMIT 15")
+    fun getQuickWatches(): Flow<List<MediaItem>>
+
+    @Query("""
+    SELECT * FROM media_items 
+    WHERE isAvailable = 1 AND id NOT IN (
+        SELECT mediaItemId FROM playback_status WHERE profileId = :profileId
+    ) 
+    ORDER BY RANDOM() LIMIT 15
+""")
+    fun getUnplayedGems(profileId: Int): Flow<List<MediaItem>>
 }
 
 @Dao
