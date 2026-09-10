@@ -9,7 +9,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.calebms.openflix.data.local.entities.MediaItem
 import com.calebms.openflix.data.local.entities.Profile
 import com.calebms.openflix.ui.screens.MainScaffold
 import com.calebms.openflix.ui.screens.OnboardingScreen
@@ -25,19 +24,40 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
+
 class MainActivity : ComponentActivity() {
+
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+
+
         enableEdgeToEdge()
         setContent {
             OpenFlixTheme {
                 val profileViewModel: ProfileViewModel = viewModel()
                 val scannerViewModel: ScannerViewModel = viewModel()
 
+                val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { }
+
+                LaunchedEffect(Unit) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
+
                 OpenFlixApp(profileViewModel, scannerViewModel)
             }
         }
     }
+
+
 }
 
 @Composable
@@ -45,7 +65,6 @@ fun OpenFlixApp(
     profileViewModel: ProfileViewModel,
     scannerViewModel: ScannerViewModel
 ) {
-    // Splash State
     var showSplash by remember { mutableStateOf(true) }
 
     if (showSplash) {

@@ -93,7 +93,10 @@ fun FilteredHomeScreen(
         if (featuredItem != null) {
             HeroBillboard(
                 item = featuredItem,
-                onPlayClick = { onMediaClick(featuredItem) }
+                onPlayClick = {
+                    android.util.Log.d("OpenFlixDebug", "CLICKED ITEM ID: ${featuredItem.id} - Title: ${featuredItem.title}")
+                    onMediaClick(featuredItem)
+                }
             )
 
             Spacer(modifier = Modifier.height(16.dp))

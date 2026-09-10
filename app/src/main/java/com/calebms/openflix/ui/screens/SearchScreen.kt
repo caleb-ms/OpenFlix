@@ -42,7 +42,6 @@ fun SearchScreen(
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
-
     val searchResults = remember(searchQuery, allMedia) {
         if (searchQuery.isBlank()) {
             emptyList()

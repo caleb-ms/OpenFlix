@@ -24,10 +24,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calebms.openflix.data.local.entities.Profile
+import com.calebms.openflix.viewmodel.ScannerViewModel
+
 
 @Composable
 fun MyOpenFlixScreen(
     activeProfile: Profile,
+    viewModel: ScannerViewModel,
     isScanning: Boolean,
     isSyncing: Boolean,
     onUpdateProfileName: (String) -> Unit,
@@ -61,6 +64,7 @@ fun MyOpenFlixScreen(
         }
     }
     val currentVersionName = packageInfo?.versionName ?: "1.0.0"
+    val serverAddress by viewModel.mediaServer.serverAddress.collectAsState()
 
     LazyColumn(
         modifier = Modifier
@@ -221,6 +225,8 @@ fun MyOpenFlixScreen(
             }
             Spacer(modifier = Modifier.height(16.dp))
         }
+
+
 
 
         item {

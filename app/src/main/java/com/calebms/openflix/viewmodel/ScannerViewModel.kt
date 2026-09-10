@@ -12,6 +12,10 @@ import com.calebms.openflix.data.remote.tmdb.TmdbSyncManager
 import com.calebms.openflix.data.scanner.MediaScanner
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import com.calebms.openflix.data.server.LocalMediaServer
+import kotlinx.coroutines.Dispatchers
+import com.calebms.openflix.data.server.RemoteMessage
+import com.calebms.openflix.data.server.CommandAction
 
 class ScannerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -24,6 +28,10 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    val mediaServer = LocalMediaServer.getInstance(application)
+    private val _remotePlaybackState = MutableStateFlow<RemoteMessage?>(null)
+    val remotePlaybackState: StateFlow<RemoteMessage?> = _remotePlaybackState.asStateFlow()
 
 
     private val _isScanning = MutableStateFlow(false)
@@ -97,7 +105,54 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaServer.start()
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaServer.incomingMessages.collect { msg ->
+                if (msg.action == CommandAction.SYNC_TICK || msg.action == CommandAction.TRACKS_INFO) {
+                    _remotePlaybackState.update { current ->
+                        val audio = msg.audioTracks.ifEmpty { current?.audioTracks ?: emptyList() }
+                        val subtitles = msg.subtitleTracks.ifEmpty { current?.subtitleTracks ?: emptyList() }
+                        msg.copy(audioTracks = audio, subtitleTracks = subtitles)
+                    }
+
+                    val mediaId = msg.mediaId
+                    if (msg.action == CommandAction.SYNC_TICK && !mediaId.isNullOrBlank() && msg.durationMs > 0L) {
+                        savePlaybackProgress(
+                            profileId = 1,
+                            mediaId = mediaId,
+                            episodeId = msg.episodeId,
+                            positionMs = msg.positionMs,
+                            durationMs = msg.durationMs,
+                            isFinished = msg.isFinished
+                        )
+                    }
+                }
+            }
+        }
+
         scanPersistedFolders()
+    }
+
+    fun sendRemoteCommand(message: RemoteMessage) {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaServer.sendCommand(message)
+        }
+    }
+
+    fun restartServer() {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaServer.restart()
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaServer.stop()
+        }
     }
 
     fun forceScan() {

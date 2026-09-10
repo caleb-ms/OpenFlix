@@ -33,6 +33,11 @@ import com.calebms.openflix.data.remote.updater.AppUpdater
 import com.calebms.openflix.data.remote.updater.UpdateCheckState
 import android.widget.Toast
 import kotlinx.coroutines.launch
+import com.calebms.openflix.data.server.RemoteMessage
+import com.calebms.openflix.data.server.CommandAction
+import com.calebms.openflix.data.server.RemoteStreamingService
+import android.content.Intent
+import android.os.Build
 
 @Composable
 fun MainScaffold(
@@ -59,15 +64,129 @@ fun MainScaffold(
     val appUpdater = remember { AppUpdater(context) }
     var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
 
+    // Track remote casting state
+    var isRemotePlaying by remember { mutableStateOf(false) }
+    var remoteTargetEpisodeTitle by remember { mutableStateOf<String?>(null) }
+    var remoteTargetPosterPath by remember { mutableStateOf<String?>(null) }
+    var showPlayOnPcSheet by remember { mutableStateOf(false) }
 
+    // Track pending episode and position for PC playback
+    var pendingPlayOnPcEpisode by remember { mutableStateOf<MediaEpisode?>(null) }
+    var pendingPlayOnPcPositionMs by remember { mutableLongStateOf(0L) }
+
+    val serverAddress by scannerViewModel.mediaServer.serverAddress.collectAsState()
+    val isClientConnected by scannerViewModel.mediaServer.isClientConnected.collectAsState()
+    val remotePlaybackState by scannerViewModel.remotePlaybackState.collectAsState()
 
 
     val episodes by remember(selectedMedia?.id) {
         scannerViewModel.getEpisodesForShow(selectedMedia?.id ?: "")
     }.collectAsState(initial = emptyList())
 
-    if (activeVideoUri != null && selectedMedia != null) {
+    val playbackStatuses by remember(activeProfile.id, selectedMedia?.id) {
+        scannerViewModel.getStatusesForMedia(activeProfile.id, selectedMedia?.id ?: "")
+    }.collectAsState(initial = emptyList())
 
+    LaunchedEffect(isRemotePlaying, remotePlaybackState?.isPlaying, remoteTargetPosterPath) {
+        if (isRemotePlaying) {
+            val intent = Intent(context, RemoteStreamingService::class.java).apply {
+                putExtra(RemoteStreamingService.EXTRA_TITLE, remoteTargetEpisodeTitle ?: selectedMedia?.title)
+                putExtra(RemoteStreamingService.EXTRA_IS_PLAYING, remotePlaybackState?.isPlaying ?: true)
+                putExtra(RemoteStreamingService.EXTRA_POSTER_PATH, remoteTargetPosterPath ?: selectedMedia?.backdropPath ?: selectedMedia?.posterPath)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } else {
+            context.stopService(Intent(context, RemoteStreamingService::class.java))
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            context.stopService(Intent(context, RemoteStreamingService::class.java))
+        }
+    }
+
+    val initiatePlayOnPc: (MediaEpisode?, Long) -> Unit = { targetEp, startPosMs ->
+        pendingPlayOnPcEpisode = targetEp
+        pendingPlayOnPcPositionMs = startPosMs
+
+        if (serverAddress == null || !isClientConnected) {
+            scannerViewModel.restartServer()
+            showPlayOnPcSheet = true
+        } else {
+            selectedMedia?.let { media ->
+                val isTv = media.type == "TV_SHOW"
+                val currentEpisode = if (isTv) (targetEp ?: episodes.firstOrNull()) else null
+                val epId = currentEpisode?.id
+
+                val currentIndex = if (currentEpisode != null) episodes.indexOfFirst { it.id == currentEpisode.id } else -1
+                val hasNext = isTv && currentIndex != -1 && currentIndex < episodes.size - 1
+
+                val epTitle = currentEpisode?.let { "S${it.seasonNumber}E${it.episodeNumber} - ${it.episodeTitle ?: ""}" }
+                remoteTargetEpisodeTitle = epTitle
+                remoteTargetPosterPath = currentEpisode?.stillPath ?: media.backdropPath ?: media.posterPath
+
+                val streamUrl = "$serverAddress/stream/video?mediaId=${media.id}" + if (epId != null) "&episodeId=$epId" else ""
+                val subtitleUrl = "$serverAddress/stream/subtitle?mediaId=${media.id}" + if (epId != null) "&episodeId=$epId" else ""
+
+                scannerViewModel.sendRemoteCommand(
+                    RemoteMessage(
+                        action = CommandAction.LOAD,
+                        mediaId = media.id,
+                        episodeId = epId,
+                        title = if (epTitle != null) "${media.title} • $epTitle" else media.title,
+                        overview = currentEpisode?.episodeOverview ?: media.overview,
+                        streamUrl = streamUrl,
+                        subtitleUrl = subtitleUrl,
+                        positionMs = startPosMs,
+                        hasNextEpisode = hasNext
+                    )
+                )
+                isRemotePlaying = true
+            }
+        }
+    }
+
+    val playNextEpisode: () -> Unit = {
+        if (selectedMedia?.type == "TV_SHOW") {
+            val curId = remotePlaybackState?.episodeId
+            val idx = episodes.indexOfFirst { it.id == curId }
+            if (idx != -1 && idx < episodes.size - 1) {
+                initiatePlayOnPc(episodes[idx + 1], 0L)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        scannerViewModel.mediaServer.incomingMessages.collect { msg ->
+            if (msg.action == CommandAction.NEXT_EPISODE) {
+                playNextEpisode()
+            } else if (msg.action == CommandAction.DISCONNECT) {
+                isRemotePlaying = false
+            }
+        }
+    }
+
+    if (isRemotePlaying && selectedMedia != null) {
+        val curIndex = episodes.indexOfFirst { it.id == remotePlaybackState?.episodeId }
+        val hasNext = selectedMedia?.type == "TV_SHOW" && curIndex != -1 && curIndex < episodes.size - 1
+
+        RemotePlayerScreen(
+            mediaItem = selectedMedia!!,
+            episodeTitle = remoteTargetEpisodeTitle,
+            hasNextEpisode = hasNext,
+            viewModel = scannerViewModel,
+            onDisconnect = {
+                scannerViewModel.sendRemoteCommand(RemoteMessage(action = CommandAction.DISCONNECT))
+                isRemotePlaying = false
+            },
+            onNextEpisode = playNextEpisode
+        )
+    } else if (activeVideoUri != null && selectedMedia != null) {
         val nextEpisode = if (selectedMedia?.type == "TV_SHOW") {
             val currentIndex = episodes.indexOfFirst { it.localFileUri == activeVideoUri }
             if (currentIndex != -1 && currentIndex < episodes.size - 1) {
@@ -77,7 +196,6 @@ fun MainScaffold(
 
         val activeEpisodeId = episodes.find { it.localFileUri == activeVideoUri }?.id
 
-        // key() forces a clean teardown of ExoPlayer and all internal states per video URI
         key(activeVideoUri) {
             VideoPlayerScreen(
                 videoUri = activeVideoUri!!,
@@ -106,18 +224,9 @@ fun MainScaffold(
                 }
             )
         }
-    }
-
-    else if (selectedMedia != null) {
-        val currentItem = selectedMedia!!
-        
-
-        val playbackStatuses by remember(currentItem.id, activeProfile.id) {
-            scannerViewModel.getStatusesForMedia(activeProfile.id, currentItem.id)
-        }.collectAsState(initial = emptyList<PlaybackStatus>())
-
+    } else if (selectedMedia != null) {
         MediaDetailScreen(
-            item = currentItem,
+            item = selectedMedia!!,
             episodes = episodes,
             playbackStatuses = playbackStatuses,
             onBackClick = { selectedMedia = null },
@@ -127,8 +236,33 @@ fun MainScaffold(
                 activeVideoOverview = overview
                 activeStartPositionMs = startPositionMs
                 activeSubtitleUri = subtitleUri
+            },
+            onPlayOnPcClick = { specificEpisode, startPositionMs ->
+                initiatePlayOnPc(specificEpisode, startPositionMs)
             }
         )
+
+        if (showPlayOnPcSheet) {
+            PlayOnPcBottomSheet(
+                serverAddress = serverAddress,
+                isClientConnected = isClientConnected,
+                onDismiss = { showPlayOnPcSheet = false },
+                onRetry = {
+                    scannerViewModel.restartServer()
+                    if (serverAddress != null && isClientConnected) {
+                        showPlayOnPcSheet = false
+                        initiatePlayOnPc(pendingPlayOnPcEpisode, pendingPlayOnPcPositionMs)
+                    } else {
+                        val message = if (serverAddress == null) {
+                            "No network connection detected. Please turn on Hotspot or Wi-Fi."
+                        } else {
+                            "OpenFlix Companion is still not connected."
+                        }
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+        }
     } else {
 
         Box(
@@ -163,6 +297,7 @@ fun MainScaffold(
 
                         MyOpenFlixScreen(
                             activeProfile = activeProfile,
+                            viewModel = scannerViewModel,
                             isScanning = isScanning,
                             isSyncing = isSyncing,
                             onUpdateProfileName = { newName ->
@@ -222,7 +357,6 @@ fun MainScaffold(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Home Tab
                 NavBarItem(
                     title = "Home",
                     icon = Icons.Default.Home,
@@ -231,7 +365,6 @@ fun MainScaffold(
                     modifier = Modifier.weight(1f)
                 )
 
-                // Search Tab
                 NavBarItem(
                     title = "Search",
                     icon = Icons.Default.Search,
@@ -240,7 +373,6 @@ fun MainScaffold(
                     modifier = Modifier.weight(1f)
                 )
 
-                // Profile Tab
                 NavBarItem(
                     title = "My Openflix",
                     icon = Icons.Default.Person,

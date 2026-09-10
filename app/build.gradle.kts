@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     id("com.google.devtools.ksp") version "2.2.10-2.0.2"
 }
 
@@ -14,8 +15,8 @@ android {
         applicationId = "com.calebms.openflix"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -52,6 +53,7 @@ android {
     }
 }
 
+val ktorVersion = "2.3.12"
 
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
@@ -79,9 +81,17 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.coil.compose)
+    implementation(libs.androidx.media)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("io.ktor:ktor-server-core:${ktorVersion}")
+    implementation("io.ktor:ktor-server-cio:${ktorVersion}")
+    implementation("io.ktor:ktor-server-websockets:${ktorVersion}")
+    implementation("io.ktor:ktor-server-cors:${ktorVersion}")
+    implementation("io.ktor:ktor-server-content-negotiation:${ktorVersion}")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:${ktorVersion}")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 }

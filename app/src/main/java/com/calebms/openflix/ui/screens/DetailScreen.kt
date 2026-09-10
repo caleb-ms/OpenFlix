@@ -41,7 +41,8 @@ fun MediaDetailScreen(
     episodes: List<MediaEpisode>,
     playbackStatuses: List<PlaybackStatus>,
     onBackClick: () -> Unit,
-    onPlayClick: (videoUri: String, title: String, overview: String?, startPositionMs: Long, subtitleUri: String?) -> Unit
+    onPlayClick: (videoUri: String, title: String, overview: String?, startPositionMs: Long, subtitleUri: String?) -> Unit,
+    onPlayOnPcClick: (episode: MediaEpisode?, startPositionMs: Long) -> Unit
 ) {
     BackHandler { onBackClick() }
 
@@ -61,6 +62,11 @@ fun MediaDetailScreen(
 
     val isResuming = activeStatus != null
     val lastPositionMs = activeStatus?.lastPositionMs ?: 0L
+
+    val resumeEpisode = if (item.type == "TV_SHOW") {
+        val targetEpisodeId = activeStatus?.episodeId ?: episodes.firstOrNull()?.id
+        episodes.find { it.id == targetEpisodeId }
+    } else null
 
     val previewPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -201,32 +207,51 @@ fun MediaDetailScreen(
                         )
                     }
 
-                    Button(
-                        onClick = {
-                            val targetEpisode = if (item.type == "TV_SHOW") {
-                                val targetEpisodeId = activeStatus?.episodeId ?: episodes.firstOrNull()?.id
-                                episodes.find { it.id == targetEpisodeId }
-                            } else null
-
-                            val targetUri = targetEpisode?.localFileUri ?: item.localUri
-                            val targetSubtitleUri = targetEpisode?.subtitleUri ?: item.subtitleUri
-
-                            val playTitle = if (item.type == "TV_SHOW") {
-                                if (targetEpisode != null) "${item.title} - S${targetEpisode.seasonNumber}E${targetEpisode.episodeNumber}" else item.title
-                            } else item.title
-
-                            onPlayClick(targetUri, playTitle, item.overview, lastPositionMs, targetSubtitleUri)
-                        },
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                        shape = RoundedCornerShape(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isResuming) "Resume" else "Play", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Button(
+                            onClick = {
+                                val targetEpisode = if (item.type == "TV_SHOW") {
+                                    val targetEpisodeId = activeStatus?.episodeId ?: episodes.firstOrNull()?.id
+                                    episodes.find { it.id == targetEpisodeId }
+                                } else null
+
+                                val targetUri = targetEpisode?.localFileUri ?: item.localUri
+                                val targetSubtitleUri = targetEpisode?.subtitleUri ?: item.subtitleUri
+
+                                val playTitle = if (item.type == "TV_SHOW") {
+                                    if (targetEpisode != null) "${item.title} - S${targetEpisode.seasonNumber}E${targetEpisode.episodeNumber}" else item.title
+                                } else item.title
+
+                                onPlayClick(targetUri, playTitle, item.overview, lastPositionMs, targetSubtitleUri)
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (isResuming) "Resume" else "Play", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                onPlayOnPcClick(resumeEpisode, lastPositionMs)
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray)
+                        ) {
+                            Icon(Icons.Default.Laptop, contentDescription = null, tint = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Play on PC", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
                     }
 
-                    // FIX: Movie Red Progress Bar layout
+
                     if (isResuming && activeStatus?.totalDurationMs != null) {
                         val remainingMs = activeStatus.totalDurationMs - activeStatus.lastPositionMs
                         val progress = (activeStatus.lastPositionMs.toFloat() / activeStatus.totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -271,16 +296,26 @@ fun MediaDetailScreen(
                                 epStatus?.lastPositionMs ?: 0L,
                                 episode.subtitleUri
                             )
+                        },
+                        onPlayOnPcClick = {
+                            onPlayOnPcClick(episode, epStatus?.lastPositionMs ?: 0L)
                         }
                     )
                 }
             }
+            }
         }
     }
-}
+
 
 @Composable
-fun EpisodeRow(episode: MediaEpisode, posterPath: String?, status: PlaybackStatus?, onClick: () -> Unit) {
+fun EpisodeRow(
+    episode: MediaEpisode,
+    posterPath: String?,
+    status: PlaybackStatus?,
+    onClick: () -> Unit,
+    onPlayOnPcClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -302,11 +337,6 @@ fun EpisodeRow(episode: MediaEpisode, posterPath: String?, status: PlaybackStatu
                     contentDescription = null,
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.3f))
                 )
             }
             Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White)
@@ -354,6 +384,14 @@ fun EpisodeRow(episode: MediaEpisode, posterPath: String?, status: PlaybackStatu
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
+        }
+
+        IconButton(onClick = onPlayOnPcClick) {
+            Icon(
+                imageVector = Icons.Default.Laptop,
+                contentDescription = "Play Episode on PC",
+                tint = Color.LightGray
+            )
         }
     }
 }
