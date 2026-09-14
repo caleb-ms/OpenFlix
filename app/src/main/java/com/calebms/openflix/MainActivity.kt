@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.calebms.openflix.data.local.entities.Profile
 import com.calebms.openflix.ui.screens.MainScaffold
@@ -72,7 +73,7 @@ fun OpenFlixApp(
     } else {
 
         val profiles by profileViewModel.allProfiles.collectAsState()
-        var selectedProfileId by remember { mutableStateOf<Int?>(null) }
+        var selectedProfileId by rememberSaveable { mutableStateOf<Int?>(null) }
         
         val selectedProfile = profiles.find { it.id == selectedProfileId }
         val mediaList by scannerViewModel.allMedia.collectAsState()

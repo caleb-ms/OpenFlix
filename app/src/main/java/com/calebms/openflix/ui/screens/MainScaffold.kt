@@ -196,34 +196,33 @@ fun MainScaffold(
 
         val activeEpisodeId = episodes.find { it.localFileUri == activeVideoUri }?.id
 
-        key(activeVideoUri) {
-            VideoPlayerScreen(
-                videoUri = activeVideoUri!!,
-                title = activeVideoTitle,
-                overview = activeVideoOverview,
-                startPositionMs = activeStartPositionMs,
-                autoDetectedSubtitleUri = activeSubtitleUri,
-                onNavigateBack = { activeVideoUri = null },
-                onNextEpisode = if (nextEpisode != null) {
-                    {
-                        activeStartPositionMs = 0L // FIX: Reset start position for next episode!
-                        activeVideoUri = nextEpisode.localFileUri
-                        activeVideoTitle = "${selectedMedia?.title} - S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}"
-                        activeSubtitleUri = nextEpisode.subtitleUri
-                    }
-                } else null,
-                onSaveProgress = { positionMs, durationMs, isFinished ->
-                    scannerViewModel.savePlaybackProgress(
-                        profileId = activeProfile.id,
-                        mediaId = selectedMedia!!.id,
-                        episodeId = activeEpisodeId,
-                        positionMs = positionMs,
-                        durationMs = durationMs,
-                        isFinished = isFinished
-                    )
+        VideoPlayerScreen(
+            videoUri = activeVideoUri!!,
+            title = activeVideoTitle,
+            overview = activeVideoOverview,
+            startPositionMs = activeStartPositionMs,
+            autoDetectedSubtitleUri = activeSubtitleUri,
+            onNavigateBack = { activeVideoUri = null },
+            onNextEpisode = if (nextEpisode != null) {
+                {
+                    activeStartPositionMs = 0L
+                    activeVideoUri = nextEpisode.localFileUri
+                    activeVideoTitle = "${selectedMedia?.title} - S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}"
+                    activeVideoOverview = nextEpisode.episodeOverview ?: selectedMedia?.overview
+                    activeSubtitleUri = nextEpisode.subtitleUri
                 }
-            )
-        }
+            } else null,
+            onSaveProgress = { positionMs, durationMs, isFinished ->
+                scannerViewModel.savePlaybackProgress(
+                    profileId = activeProfile.id,
+                    mediaId = selectedMedia!!.id,
+                    episodeId = activeEpisodeId,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    isFinished = isFinished
+                )
+            }
+        )
     } else if (selectedMedia != null) {
         MediaDetailScreen(
             item = selectedMedia!!,
