@@ -12,8 +12,8 @@ local.properties
 /release
 /.idea
 /.artifacts
-/app/github/release
-/app/playstore/release
+/app/github/release/
+/app/playstore/release/
 # Keystore files
 *.jks
 *.keystore
