@@ -32,6 +32,18 @@ class TmdbSyncManager(context: Context) {
         .build()
         .create(TmdbApiService::class.java)
 
+    suspend fun validateApiKey(apiKey: String): Boolean = withContext(Dispatchers.IO) {
+        val trimmed = apiKey.trim()
+        if (trimmed.isBlank()) return@withContext false
+        try {
+            tmdbApi.searchMovie(apiKey = trimmed, query = "test")
+            true
+        } catch (e: Exception) {
+            Log.e("TmdbSync", "API key validation failed: ${e.message}")
+            false
+        }
+    }
+
     suspend fun syncLibrary(apiKey: String, force: Boolean = false) = withContext(Dispatchers.IO) {
         Log.d("TmdbSync", "Starting syncLibrary with API key length: ${apiKey.length}, force=$force")
         if (apiKey.isBlank()) {

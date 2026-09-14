@@ -341,10 +341,16 @@ fun MainScaffold(
             }
 
 
+            val navBarBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 40.dp, vertical = 20.dp)
+                    .padding(
+                        start = 40.dp,
+                        end = 40.dp,
+                        bottom = maxOf(navBarBottomInset, 20.dp)
+                    )
                     .height(64.dp),
                 shape = RoundedCornerShape(32.dp),
                 color = Color(0xFF262626).copy(alpha = 0.95f),

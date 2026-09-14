@@ -57,6 +57,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "openflix_database"
                 )
                     .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
                 instance

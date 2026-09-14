@@ -1,5 +1,6 @@
 package com.calebms.openflix.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +19,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun OnboardingScreen(
     isScanning: Boolean,
+    noMediaFound: Boolean = false,
     onSelectFolderClick: () -> Unit
 ) {
     Column(
@@ -55,7 +57,26 @@ fun OnboardingScreen(
             lineHeight = 24.sp
         )
 
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(32.dp))
+
+        if (noMediaFound && !isScanning) {
+            Surface(
+                color = Color(0xFFE50914).copy(alpha = 0.15f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, Color(0xFFE50914)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+            ) {
+                Text(
+                    text = "We couldnt find any media in the selected folder. Try a folder with any media",
+                    color = Color(0xFFFF6B6B),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
 
         if (isScanning) {
             CircularProgressIndicator(color = Color(0xFFE50914))

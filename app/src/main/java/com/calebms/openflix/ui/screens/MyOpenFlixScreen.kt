@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calebms.openflix.data.local.entities.Profile
 import com.calebms.openflix.viewmodel.ScannerViewModel
+import kotlinx.coroutines.launch
 
 
 @Composable
@@ -43,6 +44,8 @@ fun MyOpenFlixScreen(
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val coroutineScope = rememberCoroutineScope()
+    var isVerifyingKey by remember { mutableStateOf(false) }
 
 
     var editName by remember(activeProfile.name) { mutableStateOf(activeProfile.name) }
@@ -184,18 +187,46 @@ fun MyOpenFlixScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = tmdbSaveStatus, color = Color(0xFF46D369), fontSize = 14.sp)
+                    Text(
+                        text = tmdbSaveStatus,
+                        color = when {
+                            tmdbSaveStatus.contains("Success") || tmdbSaveStatus.contains("Complete") -> Color(0xFF46D369)
+                            tmdbSaveStatus.contains("Invalid") || tmdbSaveStatus.contains("Please") || tmdbSaveStatus.contains("empty") -> Color(0xFFE50914)
+                            else -> Color.Gray
+                        },
+                        fontSize = 14.sp,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Button(
                             onClick = {
-                                sharedPrefs.edit().putString("tmdb_api_key", tmdbKey.trim()).apply()
-                                tmdbSaveStatus = "Key Saved Successfully"
-                                onSyncMetadataClick()
+                                val keyToSave = tmdbKey.trim()
+                                if (keyToSave.isEmpty()) {
+                                    tmdbSaveStatus = "Please enter an API key"
+                                } else {
+                                    isVerifyingKey = true
+                                    tmdbSaveStatus = "Validating key..."
+                                    coroutineScope.launch {
+                                        val isValid = viewModel.validateTmdbApiKey(keyToSave)
+                                        isVerifyingKey = false
+                                        if (isValid) {
+                                            sharedPrefs.edit().putString("tmdb_api_key", keyToSave).apply()
+                                            tmdbSaveStatus = "Key Saved Successfully"
+                                            onSyncMetadataClick()
+                                        } else {
+                                            tmdbSaveStatus = "Invalid API key"
+                                        }
+                                    }
+                                }
                             },
-                            enabled = !isSyncing,
+                            enabled = !isSyncing && !isVerifyingKey,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF333333))
                         ) {
-                            Text("Save", color = Color.White)
+                            if (isVerifyingKey) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Save", color = Color.White)
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(8.dp))
@@ -205,7 +236,7 @@ fun MyOpenFlixScreen(
                                 tmdbSaveStatus = "Syncing..."
                                 onForceSyncClick()
                             },
-                            enabled = !isSyncing,
+                            enabled = !isSyncing && !isVerifyingKey,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))
                         ) {
                             if (isSyncing) {

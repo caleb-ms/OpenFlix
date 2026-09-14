@@ -15,8 +15,8 @@ android {
         applicationId = "com.calebms.openflix"
         minSdk = 26
         targetSdk = 37
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 5
+        versionName = "1.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -84,6 +84,7 @@ dependencies {
     implementation(libs.androidx.media)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.session)
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")

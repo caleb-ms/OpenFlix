@@ -98,8 +98,10 @@ fun OpenFlixApp(
 
 
             mediaList.isEmpty() -> {
+                val noMediaFound by scannerViewModel.noMediaFound.collectAsState()
                 OnboardingScreen(
                     isScanning = isScanning,
+                    noMediaFound = noMediaFound,
                     onSelectFolderClick = { folderPickerLauncher.launch(null) }
                 )
             }

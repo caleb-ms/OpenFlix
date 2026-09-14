@@ -37,13 +37,16 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
@@ -120,8 +123,25 @@ fun VideoPlayerScreen(
 
 
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+
+        ExoPlayer.Builder(context)
+            .setAudioAttributes(audioAttributes, true)
+            .build().apply {
+                playWhenReady = true
+            }
+    }
+
+    val mediaSession = remember(exoPlayer) {
+        MediaSession.Builder(context, exoPlayer).build()
+    }
+
+    DisposableEffect(mediaSession) {
+        onDispose {
+            mediaSession.release()
         }
     }
 
@@ -189,8 +209,15 @@ fun VideoPlayerScreen(
         showUpNextPrompt = false
         upNextCancelled = false
 
+        val mediaMetadata = MediaMetadata.Builder()
+            .setTitle(title)
+            .setDisplayTitle(title)
+            .setDescription(overview)
+            .build()
+
         val mediaItemBuilder = androidx.media3.common.MediaItem.Builder()
             .setUri(Uri.parse(videoUri))
+            .setMediaMetadata(mediaMetadata)
 
         val activeSubtitleUri: Any? = externalSubtitleUri ?: autoDetectedSubtitleUri
 

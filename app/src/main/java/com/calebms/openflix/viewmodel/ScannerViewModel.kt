@@ -37,6 +37,9 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
+    private val _noMediaFound = MutableStateFlow(false)
+    val noMediaFound: StateFlow<Boolean> = _noMediaFound.asStateFlow()
+
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
@@ -56,6 +59,7 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
     fun scanFolder(treeUri: Uri) {
         viewModelScope.launch {
             _isScanning.value = true
+            _noMediaFound.value = false
 
             getApplication<Application>().contentResolver.takePersistableUriPermission(
                 treeUri,
@@ -66,11 +70,21 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
             scanner.verifyLibraryAvailability()
 
             _isScanning.value = false
-            syncWithTmdb()
+
+            val mediaInDb = db.mediaDao().getAllMediaList()
+            if (mediaInDb.isEmpty()) {
+                _noMediaFound.value = true
+            } else {
+                syncWithTmdb()
+            }
         }
     }
 
     private val tmdbSyncManager = TmdbSyncManager(application)
+
+    suspend fun validateTmdbApiKey(apiKey: String): Boolean {
+        return tmdbSyncManager.validateApiKey(apiKey)
+    }
 
     fun syncWithTmdb(force: Boolean = false) {
         viewModelScope.launch {
