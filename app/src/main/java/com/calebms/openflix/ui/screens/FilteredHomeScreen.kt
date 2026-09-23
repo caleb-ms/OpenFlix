@@ -102,10 +102,15 @@ fun FilteredHomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
 
+            val playbackStatusMap = remember(continueWatchingStatuses) {
+                continueWatchingStatuses.associateBy { it.mediaItemId }
+            }
+
             if (continueWatchingMedia.isNotEmpty()) {
                 MediaSectionRow(
                     sectionTitle = "Continue Watching for ${profile.name}",
                     items = filterList(continueWatchingMedia),
+                    statusMap = playbackStatusMap,
                     onItemClick = onMediaClick
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -115,6 +120,7 @@ fun FilteredHomeScreen(
                 MediaSectionRow(
                     sectionTitle = "Unplayed Gems",
                     items = displayedUnplayedGems,
+                    statusMap = playbackStatusMap,
                     onItemClick = onMediaClick
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -124,6 +130,7 @@ fun FilteredHomeScreen(
                 MediaSectionRow(
                     sectionTitle = if (selectedFilter == "All") "Recently Added" else selectedFilter,
                     items = displayedRecentlyAdded,
+                    statusMap = playbackStatusMap,
                     onItemClick = onMediaClick
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -133,6 +140,7 @@ fun FilteredHomeScreen(
                 MediaSectionRow(
                     sectionTitle = "Critically Acclaimed ★",
                     items = displayedCriticallyAcclaimed,
+                    statusMap = playbackStatusMap,
                     onItemClick = onMediaClick
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -142,6 +150,7 @@ fun FilteredHomeScreen(
                 MediaSectionRow(
                     sectionTitle = "Quick Watches (< 30 mins)",
                     items = displayedQuickWatches,
+                    statusMap = playbackStatusMap,
                     onItemClick = onMediaClick
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -151,6 +160,7 @@ fun FilteredHomeScreen(
                 MediaSectionRow(
                     sectionTitle = "Throwbacks & Classics",
                     items = displayedThrowbacks,
+                    statusMap = playbackStatusMap,
                     onItemClick = onMediaClick
                 )
             }

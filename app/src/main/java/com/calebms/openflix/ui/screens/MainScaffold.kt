@@ -194,12 +194,15 @@ fun MainScaffold(
             } else null
         } else null
 
-        val activeEpisodeId = episodes.find { it.localFileUri == activeVideoUri }?.id
+        val currentEpisode = episodes.find { it.localFileUri == activeVideoUri }
+        val activeArtwork = currentEpisode?.stillPath ?: selectedMedia?.posterPath ?: selectedMedia?.backdropPath
+        val activeEpisodeId = currentEpisode?.id
 
         VideoPlayerScreen(
             videoUri = activeVideoUri!!,
             title = activeVideoTitle,
             overview = activeVideoOverview,
+            artworkUri = activeArtwork,
             startPositionMs = activeStartPositionMs,
             autoDetectedSubtitleUri = activeSubtitleUri,
             onNavigateBack = { activeVideoUri = null },

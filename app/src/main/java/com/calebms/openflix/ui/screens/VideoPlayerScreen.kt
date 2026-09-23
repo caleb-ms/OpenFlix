@@ -1,10 +1,17 @@
 package com.calebms.openflix.ui.screens
 
 import android.app.Activity
+import android.app.PictureInPictureParams
+import android.content.Context
 import android.content.pm.ActivityInfo
+import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.util.Consumer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Animatable
@@ -13,8 +20,19 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.zIndex
+import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
@@ -39,6 +57,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -70,6 +89,7 @@ fun VideoPlayerScreen(
     videoUri: String,
     title: String,
     overview: String?,
+    artworkUri: String? = null,
     startPositionMs: Long = 0L,
     autoDetectedSubtitleUri: String? = null,
     onNavigateBack: () -> Unit,
@@ -77,12 +97,13 @@ fun VideoPlayerScreen(
     onSaveProgress: (positionMs: Long, durationMs: Long, isFinished: Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
+    val activity = context as? ComponentActivity
 
 
 
     // Basic States
-    var isPlaying by remember { mutableStateOf(true) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var isPlayerReady by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
     var showPauseOverlay by remember { mutableStateOf(false) }
     var currentTimeMs by remember { mutableLongStateOf(0L) }
@@ -91,10 +112,54 @@ fun VideoPlayerScreen(
     var showUpNextPrompt by remember { mutableStateOf(false) }
     var upNextCancelled by remember { mutableStateOf(false) }
 
+    // PiP State
+    var isInPipMode by remember { mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && activity != null) activity.isInPictureInPictureMode else false) }
+
+    DisposableEffect(activity) {
+        val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
+            isInPipMode = info.isInPictureInPictureMode
+        }
+        activity?.addOnPictureInPictureModeChangedListener(listener)
+        onDispose {
+            activity?.removeOnPictureInPictureModeChangedListener(listener)
+        }
+    }
+
+    DisposableEffect(isPlaying, isPlayerReady) {
+        val canAutoPip = isPlaying && isPlayerReady
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null) {
+            val builder = PictureInPictureParams.Builder()
+                .setAutoEnterEnabled(canAutoPip)
+            activity.setPictureInPictureParams(builder.build())
+        }
+        onDispose {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null) {
+                val builder = PictureInPictureParams.Builder()
+                    .setAutoEnterEnabled(false)
+                activity.setPictureInPictureParams(builder.build())
+            }
+        }
+    }
+
+    fun enterPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
+            val builder = PictureInPictureParams.Builder()
+            activity.enterPictureInPictureMode(builder.build())
+        }
+    }
+
     // Gesture & Animation States
     var resizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var seekAnimationText by remember { mutableStateOf("") }
     var showSeekAnimation by remember { mutableStateOf(false) }
+
+    // Volume & Brightness Gesture States
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    val maxVolume = remember(audioManager) { audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15 }
+
+    var gestureIndicatorText by remember { mutableStateOf("") }
+    var gestureIndicatorIcon by remember { mutableStateOf<ImageVector>(Icons.Default.VolumeUp) }
+    var showGestureIndicator by remember { mutableStateOf(false) }
 
     // Media Track States
     var currentSpeed by remember { mutableFloatStateOf(1.0f) }
@@ -104,7 +169,6 @@ fun VideoPlayerScreen(
     var subtitleTracks by remember { mutableStateOf<List<MediaTrack>>(emptyList()) }
     var showAudioDialog by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
-    var isPlayerReady by remember { mutableStateOf(false) }
     var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
     var currentLoadedVideoUri by remember { mutableStateOf<String?>(null) }
 
@@ -135,8 +199,54 @@ fun VideoPlayerScreen(
             }
     }
 
+    val currentOnNextEpisode by rememberUpdatedState(onNextEpisode)
+
+    val forwardingPlayer = remember(exoPlayer) {
+        object : ForwardingPlayer(exoPlayer) {
+            override fun isCommandAvailable(command: Int): Boolean {
+                if ((command == Player.COMMAND_SEEK_TO_NEXT || command == Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) && currentOnNextEpisode != null) {
+                    return true
+                }
+                return super.isCommandAvailable(command)
+            }
+
+            override fun getAvailableCommands(): Player.Commands {
+                val commands = super.getAvailableCommands().buildUpon()
+                if (currentOnNextEpisode != null) {
+                    commands.add(Player.COMMAND_SEEK_TO_NEXT)
+                    commands.add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                }
+                return commands.build()
+            }
+
+            override fun hasNextMediaItem(): Boolean {
+                return currentOnNextEpisode != null || super.hasNextMediaItem()
+            }
+
+            override fun seekToNext() {
+                val callback = currentOnNextEpisode
+                if (callback != null) {
+                    callback()
+                } else {
+                    super.seekToNext()
+                }
+            }
+
+            override fun seekToNextMediaItem() {
+                val callback = currentOnNextEpisode
+                if (callback != null) {
+                    callback()
+                } else {
+                    super.seekToNextMediaItem()
+                }
+            }
+        }
+    }
+
     val mediaSession = remember(exoPlayer) {
-        MediaSession.Builder(context, exoPlayer).build()
+        MediaSession.Builder(context, forwardingPlayer)
+            .setId("OpenFlixMediaSession_${System.currentTimeMillis()}")
+            .build()
     }
 
     DisposableEffect(mediaSession) {
@@ -188,7 +298,7 @@ fun VideoPlayerScreen(
     }
 
 
-    LaunchedEffect(videoUri, externalSubtitleUri, autoDetectedSubtitleUri) {
+    LaunchedEffect(videoUri, artworkUri, externalSubtitleUri, autoDetectedSubtitleUri) {
         val isNewVideo = currentLoadedVideoUri != videoUri
         currentLoadedVideoUri = videoUri
 
@@ -209,11 +319,16 @@ fun VideoPlayerScreen(
         showUpNextPrompt = false
         upNextCancelled = false
 
-        val mediaMetadata = MediaMetadata.Builder()
+        val mediaMetadataBuilder = MediaMetadata.Builder()
             .setTitle(title)
             .setDisplayTitle(title)
             .setDescription(overview)
-            .build()
+
+        parseArtworkUri(artworkUri)?.let { uri ->
+            mediaMetadataBuilder.setArtworkUri(uri)
+        }
+
+        val mediaMetadata = mediaMetadataBuilder.build()
 
         val mediaItemBuilder = androidx.media3.common.MediaItem.Builder()
             .setUri(Uri.parse(videoUri))
@@ -353,6 +468,13 @@ fun VideoPlayerScreen(
         }
     }
 
+    LaunchedEffect(showGestureIndicator) {
+        if (showGestureIndicator) {
+            delay(1200)
+            showGestureIndicator = false
+        }
+    }
+
     LaunchedEffect(currentSpeed) {
         exoPlayer.setPlaybackSpeed(currentSpeed)
     }
@@ -374,45 +496,189 @@ fun VideoPlayerScreen(
 
         // Gesture Interceptor
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = { offset ->
-                            val center = size.width / 2
-                            if (offset.x < center) {
-                                exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
-                                seekAnimationText = "<< -10s"
-                            } else {
-                                exoPlayer.seekTo((exoPlayer.currentPosition + 10000).coerceAtMost(durationMs))
-                                seekAnimationText = ">> +10s"
-                            }
-                            currentTimeMs = exoPlayer.currentPosition
-                            showSeekAnimation = true
-                        },
-                        onTap = {
-                            if (showUpNextPrompt) {
-                                upNextCancelled = true
-                                showUpNextPrompt = false
-                            } else if (showPauseOverlay) {
-                                showPauseOverlay = false
-                                showControls = true
-                            } else {
-                                showControls = !showControls
+                    var lastTapTime = 0L
+                    var lastTapX = 0f
+
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val downTime = System.currentTimeMillis()
+                        val startX = down.position.x
+                        val startY = down.position.y
+                        val viewWidth = size.width.toFloat()
+                        val viewHeight = size.height.toFloat()
+
+                        var isMultiTouch = false
+                        var isDragStarted = false
+                        var isDraggingLeftLocal = false
+
+                        var startBrightnessVal = 0.5f
+                        var startVolumeVal = 0f
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pressedPointers = event.changes.filter { it.pressed }
+
+                            if (pressedPointers.size > 1) {
+                                isMultiTouch = true
+                                val p1 = pressedPointers[0].position
+                                val p2 = pressedPointers[1].position
+                                val currentDist = hypot(p2.x - p1.x, p2.y - p1.y)
+
+                                val prevP1 = pressedPointers[0].previousPosition
+                                val prevP2 = pressedPointers[1].previousPosition
+                                val prevDist = hypot(prevP2.x - prevP1.x, prevP2.y - prevP1.y)
+
+                                if (prevDist > 0f) {
+                                    val zoom = currentDist / prevDist
+                                    if (zoom > 1.05f) {
+                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                    } else if (zoom < 0.95f) {
+                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    }
+                                }
+                                event.changes.forEach { it.consume() }
+                            } else if (pressedPointers.size == 1 && !isMultiTouch) {
+                                val change = pressedPointers[0]
+                                val deltaX = change.position.x - startX
+                                val deltaY = change.position.y - startY
+                                val dist = sqrt(deltaX * deltaX + deltaY * deltaY)
+
+                                if (!isDragStarted && dist > viewConfiguration.touchSlop) {
+                                    if (abs(deltaY) > abs(deltaX)) {
+                                        isDragStarted = true
+                                        isDraggingLeftLocal = startX < (viewWidth / 2f)
+
+                                        if (isDraggingLeftLocal) {
+                                            val currentBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
+                                            startBrightnessVal = if (currentBrightness < 0f) 0.5f else currentBrightness
+                                            gestureIndicatorIcon = Icons.Default.WbSunny
+                                            gestureIndicatorText = "Brightness ${(startBrightnessVal * 100).toInt()}%"
+                                        } else {
+                                            val currentVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+                                            startVolumeVal = currentVol.toFloat()
+                                            val volPercent = ((currentVol.toFloat() / maxVolume.toFloat()) * 100).toInt()
+                                            gestureIndicatorIcon = if (currentVol == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp
+                                            gestureIndicatorText = "Volume $volPercent%"
+                                        }
+                                        showGestureIndicator = true
+                                    }
+                                }
+
+                                if (isDragStarted) {
+                                    change.consume()
+                                    val totalDragY = change.position.y - startY
+                                    val fraction = -totalDragY / viewHeight
+
+                                    if (isDraggingLeftLocal) {
+                                        val window = activity?.window
+                                        if (window != null) {
+                                            val newBrightness = (startBrightnessVal + fraction).coerceIn(0.01f, 1.0f)
+                                            val layoutParams = window.attributes
+                                            layoutParams.screenBrightness = newBrightness
+                                            window.attributes = layoutParams
+
+                                            gestureIndicatorIcon = Icons.Default.WbSunny
+                                            gestureIndicatorText = "Brightness ${(newBrightness * 100).toInt()}%"
+                                        }
+                                    } else {
+                                        if (audioManager != null) {
+                                            val volDelta = fraction * maxVolume.toFloat()
+                                            val targetVol = (startVolumeVal + volDelta).coerceIn(0f, maxVolume.toFloat())
+                                            val newVolInt = targetVol.roundToInt()
+                                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolInt, 0)
+
+                                            val volPercent = ((newVolInt.toFloat() / maxVolume.toFloat()) * 100).toInt()
+                                            gestureIndicatorIcon = if (newVolInt == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp
+                                            gestureIndicatorText = "Volume $volPercent%"
+                                        }
+                                    }
+                                    showGestureIndicator = true
+                                }
+                            } else if (pressedPointers.isEmpty()) {
+                                if (isDragStarted) {
+                                    showGestureIndicator = false
+                                } else if (!isMultiTouch) {
+                                    val duration = System.currentTimeMillis() - downTime
+                                    val deltaX = down.position.x - startX
+                                    val deltaY = down.position.y - startY
+                                    val dist = sqrt(deltaX * deltaX + deltaY * deltaY)
+
+                                    if (duration < 500 && dist < viewConfiguration.touchSlop) {
+                                        val tapTime = System.currentTimeMillis()
+                                        if (tapTime - lastTapTime < 300L && abs(startX - lastTapX) < 150f) {
+                                            lastTapTime = 0L
+                                            if (startX < (viewWidth / 2f)) {
+                                                exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
+                                                seekAnimationText = "<< -10s"
+                                            } else {
+                                                exoPlayer.seekTo((exoPlayer.currentPosition + 10000).coerceAtMost(durationMs))
+                                                seekAnimationText = ">> +10s"
+                                            }
+                                            currentTimeMs = exoPlayer.currentPosition
+                                            showSeekAnimation = true
+                                        } else {
+                                            lastTapTime = tapTime
+                                            lastTapX = startX
+                                            if (showUpNextPrompt) {
+                                                upNextCancelled = true
+                                                showUpNextPrompt = false
+                                            } else if (showPauseOverlay) {
+                                                showPauseOverlay = false
+                                                showControls = true
+                                            } else {
+                                                showControls = !showControls
+                                            }
+                                        }
+                                    }
+                                }
+                                break
                             }
                         }
-                    )
-                }
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, _, zoom, _ ->
-                        if (zoom > 1.05f) resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        else if (zoom < 0.95f) resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     }
                 }
         )
 
+        // Volume & Brightness Gesture Indicator Overlay
+        AnimatedVisibility(
+            visible = showGestureIndicator && !isInPipMode,
+            enter = fadeIn(animationSpec = tween(100)),
+            exit = fadeOut(animationSpec = tween(300)),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(10f)
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.85f),
+                shape = RoundedCornerShape(24.dp),
+                tonalElevation = 12.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = gestureIndicatorIcon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = gestureIndicatorText,
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
         // Seek Animation Bubble
         AnimatedVisibility(
-            visible = showSeekAnimation,
+            visible = showSeekAnimation && !isInPipMode,
             enter = fadeIn(animationSpec = tween(100)),
             exit = fadeOut(animationSpec = tween(300)),
             modifier = Modifier.align(Alignment.Center)
@@ -426,7 +692,7 @@ fun VideoPlayerScreen(
 
         // Pause Overlay
         AnimatedVisibility(
-            visible = showPauseOverlay,
+            visible = showPauseOverlay && !isInPipMode,
             enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
         ) {
@@ -444,11 +710,9 @@ fun VideoPlayerScreen(
             }
         }
 
-
-
         // Custom Controls
         AnimatedVisibility(
-            visible = showControls && !showPauseOverlay,
+            visible = showControls && !showPauseOverlay && !isInPipMode,
             enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
         ) {
@@ -496,6 +760,12 @@ fun VideoPlayerScreen(
                             PlayerActionButton(Icons.Default.Audiotrack, "Audio") { showAudioDialog = true }
                         }
 
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
+                            PlayerActionButton(Icons.Default.PictureInPicture, "PiP") {
+                                enterPipMode()
+                            }
+                        }
+
                         if (onNextEpisode != null) {
                             PlayerActionButton(Icons.Default.SkipNext, "Next Ep.") { onNextEpisode() }
                         }
@@ -506,7 +776,7 @@ fun VideoPlayerScreen(
 
         // Up Next Prompt (Floating Pill)
         androidx.compose.animation.AnimatedVisibility(
-            visible = showUpNextPrompt,
+            visible = showUpNextPrompt && !isInPipMode,
             enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier
@@ -526,7 +796,7 @@ fun VideoPlayerScreen(
             )
         }
 
-        if (showSpeedDialog) {
+        if (showSpeedDialog && !isInPipMode) {
             TrackSelectionDialog(
                 title = "Playback Speed",
                 options = listOf("0.5x", "0.75x", "1.0x (Normal)", "1.25x", "1.5x"),
@@ -539,7 +809,7 @@ fun VideoPlayerScreen(
             )
         }
 
-        if (showAudioDialog) {
+        if (showAudioDialog && !isInPipMode) {
             TrackSelectionDialog(
                 title = "Audio Tracks",
                 options = audioTracks.map { it.name },
@@ -552,7 +822,7 @@ fun VideoPlayerScreen(
             )
         }
 
-        if (showSubtitleDialog) {
+        if (showSubtitleDialog && !isInPipMode) {
             TrackSelectionDialog(
                 title = "Subtitles",
                 options = listOf("Off") + subtitleTracks.map { it.name },
@@ -639,6 +909,19 @@ fun formatPlayerTime(ms: Long): String {
     val seconds = totalSeconds % 60
     return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds)
     else String.format("%02d:%02d", minutes, seconds)
+}
+
+private fun parseArtworkUri(path: String?): Uri? {
+    if (path.isNullOrBlank()) return null
+    return try {
+        when {
+            path.startsWith("http://") || path.startsWith("https://") ||
+            path.startsWith("content://") || path.startsWith("file://") -> Uri.parse(path)
+            else -> Uri.fromFile(java.io.File(path))
+        }
+    } catch (e: Exception) {
+        null
+    }
 }
 
 @Composable

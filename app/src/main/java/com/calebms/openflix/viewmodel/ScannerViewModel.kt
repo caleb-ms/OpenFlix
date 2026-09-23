@@ -125,24 +125,42 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
 
         viewModelScope.launch(Dispatchers.IO) {
             mediaServer.incomingMessages.collect { msg ->
-                if (msg.action == CommandAction.SYNC_TICK || msg.action == CommandAction.TRACKS_INFO) {
-                    _remotePlaybackState.update { current ->
-                        val audio = msg.audioTracks.ifEmpty { current?.audioTracks ?: emptyList() }
-                        val subtitles = msg.subtitleTracks.ifEmpty { current?.subtitleTracks ?: emptyList() }
-                        msg.copy(audioTracks = audio, subtitleTracks = subtitles)
-                    }
-
-                    val mediaId = msg.mediaId
-                    if (msg.action == CommandAction.SYNC_TICK && !mediaId.isNullOrBlank() && msg.durationMs > 0L) {
-                        savePlaybackProgress(
-                            profileId = 1,
-                            mediaId = mediaId,
-                            episodeId = msg.episodeId,
-                            positionMs = msg.positionMs,
-                            durationMs = msg.durationMs,
-                            isFinished = msg.isFinished
+                _remotePlaybackState.update { current ->
+                    if (current == null) {
+                        msg
+                    } else {
+                        val audio = if (msg.audioTracks.isNotEmpty()) msg.audioTracks else current.audioTracks
+                        val subtitles = if (msg.subtitleTracks.isNotEmpty()) msg.subtitleTracks else current.subtitleTracks
+                        current.copy(
+                            action = msg.action,
+                            mediaId = msg.mediaId ?: current.mediaId,
+                            episodeId = msg.episodeId ?: current.episodeId,
+                            title = msg.title ?: current.title,
+                            overview = msg.overview ?: current.overview,
+                            streamUrl = msg.streamUrl ?: current.streamUrl,
+                            subtitleUrl = msg.subtitleUrl ?: current.subtitleUrl,
+                            positionMs = if (msg.positionMs > 0L) msg.positionMs else current.positionMs,
+                            durationMs = if (msg.durationMs > 0L) msg.durationMs else current.durationMs,
+                            hasNextEpisode = msg.hasNextEpisode || current.hasNextEpisode,
+                            isPlaying = if (msg.action == CommandAction.PAUSE) false else if (msg.action == CommandAction.PLAY) true else (if (msg.action == CommandAction.SYNC_TICK) msg.isPlaying else current.isPlaying),
+                            isFinished = msg.isFinished,
+                            audioTracks = audio,
+                            subtitleTracks = subtitles
                         )
                     }
+                }
+
+                val activeState = _remotePlaybackState.value
+                val mediaId = msg.mediaId ?: activeState?.mediaId
+                if (msg.action == CommandAction.SYNC_TICK && !mediaId.isNullOrBlank() && msg.durationMs > 0L) {
+                    savePlaybackProgress(
+                        profileId = 1,
+                        mediaId = mediaId,
+                        episodeId = msg.episodeId ?: activeState?.episodeId,
+                        positionMs = msg.positionMs,
+                        durationMs = msg.durationMs,
+                        isFinished = msg.isFinished
+                    )
                 }
             }
         }
@@ -151,6 +169,9 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun sendRemoteCommand(message: RemoteMessage) {
+        if (message.action == CommandAction.LOAD) {
+            _remotePlaybackState.value = message
+        }
         viewModelScope.launch(Dispatchers.IO) {
             mediaServer.sendCommand(message)
         }

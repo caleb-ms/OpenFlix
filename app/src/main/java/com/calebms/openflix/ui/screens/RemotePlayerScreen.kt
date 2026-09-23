@@ -313,9 +313,21 @@ fun RemotePlayerScreen(
     }
 
     if (showTrackSheet) {
+        val effectiveSubtitleTracks = remember(remoteState?.subtitleTracks, remoteState?.subtitleUrl) {
+            val tracks = remoteState?.subtitleTracks ?: emptyList()
+            if (tracks.isEmpty() && !remoteState?.subtitleUrl.isNullOrBlank()) {
+                listOf(
+                    TrackOption(id = 1, name = "External Subtitle", isSelected = true),
+                    TrackOption(id = -1, name = "Off", isSelected = false)
+                )
+            } else {
+                tracks
+            }
+        }
+
         TrackSelectionBottomSheet(
             audioTracks = remoteState?.audioTracks ?: emptyList(),
-            subtitleTracks = remoteState?.subtitleTracks ?: emptyList(),
+            subtitleTracks = effectiveSubtitleTracks,
             onSelectAudio = { trackId ->
                 viewModel.sendRemoteCommand(
                     RemoteMessage(action = CommandAction.SET_AUDIO_TRACK, selectedTrackId = trackId)

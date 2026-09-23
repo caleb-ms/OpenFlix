@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.calebms.openflix.data.local.entities.MediaItem
+import com.calebms.openflix.data.local.entities.PlaybackStatus
 
 @Composable
 fun HomeScreen(
@@ -236,6 +237,7 @@ fun HeroBillboard(item: MediaItem, onPlayClick: () -> Unit) {
 fun MediaSectionRow(
     sectionTitle: String,
     items: List<MediaItem>,
+    statusMap: Map<String, PlaybackStatus> = emptyMap(),
     onItemClick: (MediaItem) -> Unit
 ) {
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
@@ -252,14 +254,22 @@ fun MediaSectionRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(items) { media ->
-                MediaPosterCard(item = media, onClick = { onItemClick(media) })
+                MediaPosterCard(
+                    item = media,
+                    status = statusMap[media.id],
+                    onClick = { onItemClick(media) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun MediaPosterCard(item: MediaItem, onClick: () -> Unit) {
+fun MediaPosterCard(
+    item: MediaItem,
+    status: PlaybackStatus? = null,
+    onClick: () -> Unit
+) {
     Column(
         modifier = Modifier
             .width(115.dp)
@@ -287,6 +297,26 @@ fun MediaPosterCard(item: MediaItem, onClick: () -> Unit) {
                     fontSize = 36.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+
+            if (status != null && status.totalDurationMs > 0L && !status.isFinished) {
+                val progress = (status.lastPositionMs.toFloat() / status.totalDurationMs.toFloat()).coerceIn(0f, 1f)
+                if (progress > 0.02f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .background(Color.Black.copy(alpha = 0.6f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progress)
+                                .background(Color(0xFFE50914))
+                        )
+                    }
+                }
             }
         }
 
