@@ -356,3 +356,15 @@ fun EmptyLibraryHeader(onPickFolderClick: () -> Unit) {
         }
     }
 }
+
+@com.calebms.openflix.ui.preview.PreviewDeviceSizes
+@Composable
+fun HomeScreenPreview() {
+    com.calebms.openflix.ui.theme.OpenFlixTheme {
+        HomeScreen(
+            mediaList = com.calebms.openflix.ui.preview.PreviewData.sampleMediaList,
+            onMediaClick = {},
+            onPickFolderClick = {}
+        )
+    }
+}

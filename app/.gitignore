@@ -1,19 +1,4 @@
 /build
-*.iml
-.gradle
-/local.properties
-/.idea/
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
 /release
-/.idea
-/.artifacts
-/app/github/release/
-/app/playstore/release/
-# Keystore files
-*.jks
-*.keystore
+/github
+/playstore

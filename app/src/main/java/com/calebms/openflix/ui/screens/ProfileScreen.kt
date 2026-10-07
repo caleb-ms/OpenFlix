@@ -165,3 +165,61 @@ fun ProfileAvatar(
         )
     }
 }
+
+@Composable
+fun ProfileScreenContent(
+    profiles: List<Profile>,
+    onProfileSelected: (Profile) -> Unit,
+    onAddProfileClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF141414))
+            .padding(top = 80.dp, start = 24.dp, end = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Who's Watching?",
+            color = Color.White,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 40.dp)
+        )
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(profiles) { profile ->
+                ProfileAvatar(
+                    name = profile.name,
+                    colorValue = profile.avatarColorHex,
+                    onClick = { onProfileSelected(profile) }
+                )
+            }
+
+            item {
+                ProfileAvatar(
+                    name = "Add Profile",
+                    isAddButton = true,
+                    onClick = onAddProfileClick
+                )
+            }
+        }
+    }
+}
+
+@com.calebms.openflix.ui.preview.PreviewDeviceSizes
+@Composable
+fun ProfileScreenPreview() {
+    com.calebms.openflix.ui.theme.OpenFlixTheme {
+        ProfileScreenContent(
+            profiles = com.calebms.openflix.ui.preview.PreviewData.sampleProfiles,
+            onProfileSelected = {},
+            onAddProfileClick = {}
+        )
+    }
+}

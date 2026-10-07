@@ -39,6 +39,17 @@ fun SearchScreen(
     onMediaClick: (MediaItem) -> Unit
 ) {
     val allMedia by viewModel.allMedia.collectAsState()
+    SearchScreenContent(
+        allMedia = allMedia,
+        onMediaClick = onMediaClick
+    )
+}
+
+@Composable
+fun SearchScreenContent(
+    allMedia: List<MediaItem>,
+    onMediaClick: (MediaItem) -> Unit
+) {
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
@@ -52,7 +63,6 @@ fun SearchScreen(
             }
         }
     }
-
 
     val defaultSuggestions = remember(allMedia) {
         allMedia.reversed().take(15)
@@ -111,7 +121,6 @@ fun SearchScreen(
                 }
             }
         }
-
 
         if (searchQuery.isEmpty()) {
 
@@ -213,5 +222,16 @@ fun SearchRowItem(item: MediaItem, onClick: () -> Unit) {
                 fontSize = 13.sp
             )
         }
+    }
+}
+
+@com.calebms.openflix.ui.preview.PreviewDeviceSizes
+@Composable
+fun SearchScreenPreview() {
+    com.calebms.openflix.ui.theme.OpenFlixTheme {
+        SearchScreenContent(
+            allMedia = com.calebms.openflix.ui.preview.PreviewData.sampleMediaList,
+            onMediaClick = {}
+        )
     }
 }

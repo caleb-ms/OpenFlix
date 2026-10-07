@@ -106,3 +106,14 @@ fun OnboardingScreen(
         }
     }
 }
+
+@com.calebms.openflix.ui.preview.PreviewDeviceSizes
+@Composable
+fun OnboardingScreenPreview() {
+    com.calebms.openflix.ui.theme.OpenFlixTheme {
+        OnboardingScreen(
+            isScanning = false,
+            onSelectFolderClick = {}
+        )
+    }
+}

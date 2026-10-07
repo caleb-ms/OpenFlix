@@ -1,8 +1,9 @@
 package com.calebms.openflix.ui.screens
 
+import android.os.Handler
+import android.os.Looper
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,30 +12,35 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem as ExoMediaItem
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.calebms.openflix.data.local.entities.MediaEpisode
 import com.calebms.openflix.data.local.entities.MediaItem
 import com.calebms.openflix.data.local.entities.PlaybackStatus
+import org.videolan.libvlc.LibVLC
+import org.videolan.libvlc.Media
+import org.videolan.libvlc.MediaPlayer
+import org.videolan.libvlc.util.VLCVideoLayout
 import java.io.File
 
-@OptIn(UnstableApi::class)
 @Composable
 fun MediaDetailScreen(
     item: MediaItem,
@@ -68,93 +74,174 @@ fun MediaDetailScreen(
         episodes.find { it.id == targetEpisodeId }
     } else null
 
-    val previewPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val idealSeekMs = if (item.type == "MOVIE") 1800000L else 900000L
-            val startMs = if (item.durationMs != null && item.durationMs < idealSeekMs) item.durationMs / 2 else idealSeekMs
-            val endMs = startMs + 30000L
+    val isInspection = LocalInspectionMode.current
 
-            val previewUri = if (item.type == "TV_SHOW") episodes.first().localFileUri else item.localUri
-
-            val clippingConfig = ExoMediaItem.ClippingConfiguration.Builder()
-                .setStartPositionMs(startMs)
-                .setEndPositionMs(endMs)
-                .build()
-
-            val mediaItem = ExoMediaItem.Builder()
-                .setUri(Uri.parse(previewUri))
-                .setClippingConfiguration(clippingConfig)
-                .build()
-
-            setMediaItem(mediaItem)
-            volume = 0f
-            repeatMode = Player.REPEAT_MODE_ONE
-            prepare()
-            playWhenReady = true
+    // LibVLC preview setup (disabled during Compose Previews to prevent native JNI crashes)
+    val libVLC = remember(isInspection) {
+        if (isInspection) null
+        else {
+            val options = arrayListOf(
+                "--no-sub-autodetect-file",
+                "--no-spu",
+                "--avcodec-fast",
+                "--avcodec-hw=any"
+            )
+            LibVLC(context, options)
         }
     }
 
-    DisposableEffect(Unit) { onDispose { previewPlayer.release() } }
-    LaunchedEffect(isMuted) { previewPlayer.volume = if (isMuted) 0f else 1f }
+    val previewPlayer = remember(libVLC) {
+        if (libVLC != null) {
+            MediaPlayer(libVLC).apply {
+                volume = 0
+                aspectRatio = "16:9"
+                videoScale = MediaPlayer.ScaleType.SURFACE_FILL
+            }
+        } else null
+    }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF141414))) {
+    val previewUri = if (item.type == "TV_SHOW") episodes.firstOrNull()?.localFileUri else item.localUri
+    val idealSeekMs = if (item.type == "MOVIE") 1800000L else 900000L
+    val startMs = if (item.durationMs != null && item.durationMs < idealSeekMs) item.durationMs / 2 else idealSeekMs
+    val startSec = startMs / 1000.0
+
+    LaunchedEffect(previewUri, libVLC, previewPlayer) {
+        if (!isInspection && libVLC != null && previewPlayer != null && !previewUri.isNullOrBlank()) {
+            try {
+                val media = createVlcMedia(context, libVLC, previewUri).apply {
+                    addOption(":start-time=$startSec")
+                }
+                previewPlayer.setEventListener { event ->
+                    when (event.type) {
+                        MediaPlayer.Event.TimeChanged -> {
+                            if (event.timeChanged >= startMs + 30000L) {
+                                previewPlayer.time = startMs
+                            }
+                        }
+                        MediaPlayer.Event.EndReached -> {
+                            Handler(Looper.getMainLooper()).post {
+                                previewPlayer.time = startMs
+                                previewPlayer.play()
+                            }
+                        }
+                    }
+                }
+                previewPlayer.media = media
+                media.release()
+                previewPlayer.play()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    LaunchedEffect(isMuted, previewPlayer) {
+        if (!isInspection && previewPlayer != null) {
+            previewPlayer.volume = if (isMuted) 0 else 100
+        }
+    }
+
+    DisposableEffect(previewPlayer, libVLC) {
+        onDispose {
+            if (!isInspection) {
+                previewPlayer?.stop()
+                previewPlayer?.detachViews()
+                previewPlayer?.release()
+                libVLC?.release()
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF141414))) {
+        // Top bar for back button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF141414))
+                .statusBarsPadding()
+                .height(48.dp)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White
+                )
+            }
+        }
+
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-
-
             item {
-                Box(modifier = Modifier.fillMaxWidth().height(280.dp)) {
-
+                Box(modifier = Modifier.fillMaxWidth().height(240.dp)) {
                     val imageSource = item.backdropPath ?: item.posterPath
-                    
                     if (imageSource != null) {
-                         AsyncImage(
+                        AsyncImage(
                             model = if (imageSource.startsWith("http")) imageSource else File(imageSource),
                             contentDescription = item.title,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
 
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                player = previewPlayer
-                                useController = false
-                                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize().background(Color.Transparent)
-                    )
-                    Box(modifier = Modifier.fillMaxSize().background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color(0xFF141414)), startY = 300f
+                    if (!isInspection && previewPlayer != null) {
+                        AndroidView(
+                            factory = { ctx ->
+                                VLCVideoLayout(ctx)
+                            },
+                            update = { layout ->
+                                layout.post {
+                                    previewPlayer.detachViews()
+                                    previewPlayer.attachViews(layout, null, false, true)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize().background(Color.Transparent)
                         )
-                    ))
-                    IconButton(
-                        onClick = onBackClick,
-                        modifier = Modifier.padding(16.dp).statusBarsPadding().size(40.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).align(Alignment.TopStart)
-                    ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
+
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color(0xFF141414)),
+                                startY = 200f
+                            )
+                        )
+                    )
+
                     IconButton(
                         onClick = { isMuted = !isMuted },
-                        modifier = Modifier.padding(16.dp).size(36.dp).background(Color.Black.copy(alpha = 0.6f), CircleShape).align(Alignment.BottomEnd)
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .size(36.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                            .align(Alignment.BottomEnd)
                     ) {
                         Icon(
-                            imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                            contentDescription = "Toggle Audio", tint = Color.White, modifier = Modifier.size(20.dp)
+                            imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = "Toggle Audio",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
             }
 
-
             item {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 16.dp)
+                ) {
                     Text(text = item.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = if (item.type == "MOVIE") "Movie" else "TV Show", color = Color(0xFF46D369), fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (item.type == "MOVIE") "Movie" else "TV Show",
+                            color = Color(0xFF46D369),
+                            fontWeight = FontWeight.Bold
+                        )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(text = item.releaseYear?.toString() ?: "Unknown Year", color = Color.Gray)
                         if (item.voteAverage != null && item.voteAverage > 0) {
@@ -171,7 +258,6 @@ fun MediaDetailScreen(
                                 )
                             }
                         }
-
                     }
 
                     if (!item.genres.isNullOrBlank()) {
@@ -251,7 +337,6 @@ fun MediaDetailScreen(
                         }
                     }
 
-
                     if (isResuming && activeStatus?.totalDurationMs != null) {
                         val remainingMs = activeStatus.totalDurationMs - activeStatus.lastPositionMs
                         val progress = (activeStatus.lastPositionMs.toFloat() / activeStatus.totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -276,7 +361,6 @@ fun MediaDetailScreen(
                     }
                 }
             }
-
 
             if (item.type == "TV_SHOW" && episodes.isNotEmpty()) {
                 item {
@@ -303,10 +387,9 @@ fun MediaDetailScreen(
                     )
                 }
             }
-            }
         }
     }
-
+}
 
 @Composable
 fun EpisodeRow(
@@ -335,7 +418,7 @@ fun EpisodeRow(
                 AsyncImage(
                     model = if (imageSource.startsWith("http")) imageSource else File(imageSource),
                     contentDescription = null,
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -366,7 +449,7 @@ fun EpisodeRow(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = "S${episode.seasonNumber} E${episode.episodeNumber}",
@@ -380,7 +463,7 @@ fun EpisodeRow(
                     color = Color.Gray,
                     fontSize = 11.sp,
                     maxLines = 2,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -396,10 +479,36 @@ fun EpisodeRow(
     }
 }
 
+// Helper function to create Media safely across content://, file://, and remote links
+fun createVlcMedia(context: android.content.Context, libVLC: LibVLC, uriString: String): Media {
+    val uri = Uri.parse(uriString)
+    return if (uri.scheme == "content") {
+        val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+            ?: throw IllegalArgumentException("Cannot open descriptor for $uri")
+        Media(libVLC, pfd.fileDescriptor)
+    } else {
+        Media(libVLC, uri)
+    }
+}
 private fun formatDuration(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
     val hours = minutes / 60
     val remainingMinutes = minutes % 60
     return if (hours > 0) "${hours}h ${remainingMinutes}m" else "${minutes}m"
+}
+
+@com.calebms.openflix.ui.preview.PreviewDeviceSizes
+@Composable
+fun MediaDetailScreenPreview() {
+    com.calebms.openflix.ui.theme.OpenFlixTheme {
+        MediaDetailScreen(
+            item = com.calebms.openflix.ui.preview.PreviewData.sampleTvShow,
+            episodes = com.calebms.openflix.ui.preview.PreviewData.sampleEpisodes,
+            playbackStatuses = emptyList(),
+            onBackClick = {},
+            onPlayClick = { _, _, _, _, _ -> },
+            onPlayOnPcClick = { _, _ -> }
+        )
+    }
 }

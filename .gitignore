@@ -1,21 +1,50 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Built application files and binaries
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+
+# Build and compiler cache directories
+.gradle/
+.kotlin/
+build/
+**/build/
+bin/
+gen/
+out/
+
+# Local configuration files (contains local SDK paths, secrets, API keys)
 local.properties
-/.artifacts
-/.idea
-# Keystore files
+
+# Android Studio and IntelliJ IDEA files
+.idea/
+*.iml
+*.iws
+*.ipr
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE / Assistant artifacts
+/.artifacts/
+
+# Keystore files & Release build artifacts
 *.jks
 *.keystore
-/release
+*.pepk
+release/
+**/release/
+
+# Log files
+*.log
+
+# Operating System files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini

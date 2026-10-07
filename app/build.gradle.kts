@@ -15,8 +15,8 @@ android {
         applicationId = "com.calebms.openflix"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.4.1"
+        versionCode = 9
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -28,8 +28,27 @@ android {
 
         release {
             optimization {
-                enable = false
+                enable = true
             }
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+
+        create("minifiedRelease") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".minified"
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.getByName("debug")
+
+            optimization {
+                enable = true
+            }
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
@@ -53,6 +72,13 @@ android {
             dimension = "distribution"
 
             buildConfigField("Boolean", "ENABLE_IN_APP_UPDATER", "true")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Forces native libraries to remain uncompressed and correctly 16 KB aligned inside the APK
+            useLegacyPackaging = false
         }
     }
 }
@@ -99,4 +125,6 @@ dependencies {
     implementation("io.ktor:ktor-server-content-negotiation:${ktorVersion}")
     implementation("io.ktor:ktor-serialization-kotlinx-json:${ktorVersion}")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("org.videolan.android:libvlc-all:3.6.3")
+    implementation("androidx.media:media:1.7.0")
 }

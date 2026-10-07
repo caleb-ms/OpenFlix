@@ -22,7 +22,6 @@
         android:theme="@style/Theme.OpenFlix">
         <activity
             android:name=".MainActivity"
-            android:screenOrientation="portrait"
             android:supportsPictureInPicture="true"
             android:exported="true"
             android:label="@string/app_name"
