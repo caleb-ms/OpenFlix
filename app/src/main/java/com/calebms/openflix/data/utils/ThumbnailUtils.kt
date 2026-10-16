@@ -56,4 +56,49 @@ object ThumbnailUtils {
 
         return@withContext MediaExtractionResult(thumbPath, duration)
     }
+
+    suspend fun cachePermanentHistoryThumbnail(
+        context: Context,
+        videoUriString: String,
+        historyIdKey: String
+    ): String? = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        var savedPath: String? = null
+
+        try {
+            val uri = Uri.parse(videoUriString)
+            if (uri.scheme == "content") {
+                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                pfd?.use {
+                    retriever.setDataSource(it.fileDescriptor)
+                }
+            } else {
+                retriever.setDataSource(context, uri)
+            }
+
+            val bitmap = retriever.getFrameAtTime(
+                300_000_000,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+            )
+
+            bitmap?.let {
+                val dir = File(context.filesDir, "watch_history_thumbs")
+                if (!dir.exists()) dir.mkdirs()
+
+                val thumbFile = File(dir, "thumb_$historyIdKey.jpg")
+                FileOutputStream(thumbFile).use { out ->
+                    it.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                }
+                savedPath = thumbFile.absolutePath
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {}
+        }
+
+        return@withContext savedPath
+    }
 }

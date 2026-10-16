@@ -15,8 +15,8 @@ android {
         applicationId = "com.calebms.openflix"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "1.5.0"
+        versionCode = 11
+        versionName = "1.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -111,6 +111,7 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.coil.compose)
+    implementation("io.coil-kt:coil-svg:2.7.0")
     implementation(libs.androidx.media)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)

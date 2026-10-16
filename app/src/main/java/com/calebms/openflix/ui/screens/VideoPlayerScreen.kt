@@ -32,6 +32,8 @@ import androidx.compose.foundation.verticalScroll
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import coil.ImageLoader
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import java.io.File
@@ -99,6 +101,7 @@ fun VideoPlayerScreen(
     // Basic Playback States
     var isPlaying by remember { mutableStateOf(false) }
     var isPlayerReady by remember { mutableStateOf(false) }
+    var isFirstFrameReady by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
     var showPauseOverlay by remember { mutableStateOf(false) }
     var currentTimeMs by remember { mutableLongStateOf(0L) }
@@ -125,10 +128,12 @@ fun VideoPlayerScreen(
     // LibVLC Initialization
     val libVLC = remember {
         val args = arrayListOf(
-            "--video-filter=deinterlace",
-            "--deinterlace=1",
-            "--aout=audiotrack",
-            "-vvv"
+            "--avcodec-hw=any",
+            "--avcodec-fast",
+            "--no-sub-autodetect-file",
+            "--network-caching=1000",
+            "--file-caching=1000",
+            "--aout=audiotrack"
         )
         LibVLC(context, args)
     }
@@ -305,6 +310,11 @@ fun VideoPlayerScreen(
                     isPlayerReady = true
                     updateMediaSessionState(true, mediaPlayer.time)
                 }
+                MediaPlayer.Event.Vout -> {
+                    if (event.voutCount > 0) {
+                        isFirstFrameReady = true
+                    }
+                }
                 MediaPlayer.Event.Paused -> {
                     isPlaying = false
                     updateMediaSessionState(false, mediaPlayer.time)
@@ -403,6 +413,7 @@ fun VideoPlayerScreen(
         }
 
         isPlayerReady = false
+        isFirstFrameReady = false
         showUpNextPrompt = false
         upNextCancelled = false
 
@@ -595,6 +606,34 @@ fun VideoPlayerScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        if (!isFirstFrameReady) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                if (artworkBitmap != null) {
+                    AsyncImage(
+                        model = artworkBitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.6f))
+                    )
+                }
+                CircularProgressIndicator(
+                    color = Color(0xFFE50914),
+                    modifier = Modifier.size(48.dp),
+                    strokeWidth = 3.dp
+                )
+            }
+        }
 
         // Gesture Interceptor
         Box(

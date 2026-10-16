@@ -1,5 +1,6 @@
 package com.calebms.openflix.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -48,12 +49,24 @@ fun MainScaffold(
     onSwitchProfileClick: () -> Unit
 ) {
     var currentTab by remember { mutableStateOf("Home") }
+    var showWatchHistoryScreen by remember { mutableStateOf(false) }
 
+    LaunchedEffect(activeProfile.id) {
+        scannerViewModel.setActiveProfileId(activeProfile.id)
+    }
 
     var selectedMedia by remember { mutableStateOf<MediaItem?>(null) }
 
-
     var activeVideoUri by remember { mutableStateOf<String?>(null) }
+
+    BackHandler(
+        enabled = currentTab != "Home" &&
+                selectedMedia == null &&
+                activeVideoUri == null &&
+                !showWatchHistoryScreen
+    ) {
+        currentTab = "Home"
+    }
     var activeVideoTitle by remember { mutableStateOf("") }
     var activeVideoOverview by remember { mutableStateOf<String?>(null) }
     var activeStartPositionMs by remember { mutableLongStateOf(0L) }
@@ -186,6 +199,12 @@ fun MainScaffold(
             },
             onNextEpisode = playNextEpisode
         )
+    } else if (showWatchHistoryScreen) {
+        WatchHistoryScreen(
+            activeProfile = activeProfile,
+            viewModel = scannerViewModel,
+            onBackClick = { showWatchHistoryScreen = false }
+        )
     } else if (activeVideoUri != null && selectedMedia != null) {
         val nextEpisode = if (selectedMedia?.type == "TV_SHOW") {
             val currentIndex = episodes.indexOfFirst { it.localFileUri == activeVideoUri }
@@ -305,6 +324,9 @@ fun MainScaffold(
                             onUpdateProfileName = { newName ->
                                 profileViewModel.updateProfile(activeProfile.copy(name = newName))
                             },
+                            onUpdateProfile = { updatedProfile ->
+                                profileViewModel.updateProfile(updatedProfile)
+                            },
                             onAddFolderClick = onAddFolderClick,
                             onForceRescanClick = {
                                 scannerViewModel.forceScan()
@@ -324,6 +346,9 @@ fun MainScaffold(
                                         Toast.makeText(context, "You are on the latest version!", Toast.LENGTH_SHORT).show()
                                     }
                                 }
+                            },
+                            onWatchHistoryClick = {
+                                showWatchHistoryScreen = true
                             }
                         )
                     }

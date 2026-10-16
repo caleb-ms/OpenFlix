@@ -8,8 +8,11 @@ import androidx.lifecycle.viewModelScope
 import com.calebms.openflix.data.local.AppDatabase
 import com.calebms.openflix.data.local.entities.MediaItem
 import com.calebms.openflix.data.local.entities.PlaybackStatus
+import com.calebms.openflix.data.local.entities.WatchHistoryEntry
+import com.calebms.openflix.data.local.dao.WatchStats
 import com.calebms.openflix.data.remote.tmdb.TmdbSyncManager
 import com.calebms.openflix.data.scanner.MediaScanner
+import com.calebms.openflix.data.utils.ThumbnailUtils
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import com.calebms.openflix.data.server.LocalMediaServer
@@ -32,6 +35,13 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
     val mediaServer = LocalMediaServer.getInstance(application)
     private val _remotePlaybackState = MutableStateFlow<RemoteMessage?>(null)
     val remotePlaybackState: StateFlow<RemoteMessage?> = _remotePlaybackState.asStateFlow()
+
+    private var activeProfileId: Int = 1
+
+    fun setActiveProfileId(profileId: Int) {
+        activeProfileId = profileId
+        android.util.Log.d("ScannerViewModel", "setActiveProfileId called: profileId = $profileId")
+    }
 
 
     private val _isScanning = MutableStateFlow(false)
@@ -152,14 +162,24 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
 
                 val activeState = _remotePlaybackState.value
                 val mediaId = msg.mediaId ?: activeState?.mediaId
-                if (msg.action == CommandAction.SYNC_TICK && !mediaId.isNullOrBlank() && msg.durationMs > 0L) {
+                val episodeId = msg.episodeId ?: activeState?.episodeId
+                val totalDuration = if (msg.durationMs > 0L) msg.durationMs else (activeState?.durationMs ?: 0L)
+                val currentPos = if (msg.positionMs > 0L) msg.positionMs else (activeState?.positionMs ?: 0L)
+
+                val isProgressReportAction = msg.action == CommandAction.SYNC_TICK ||
+                        msg.action == CommandAction.PAUSE ||
+                        msg.action == CommandAction.PLAY ||
+                        msg.action == CommandAction.SEEK ||
+                        msg.action == CommandAction.NEXT_EPISODE
+
+                if (isProgressReportAction && !mediaId.isNullOrBlank() && totalDuration > 0L) {
                     savePlaybackProgress(
-                        profileId = 1,
+                        profileId = activeProfileId,
                         mediaId = mediaId,
-                        episodeId = msg.episodeId ?: activeState?.episodeId,
-                        positionMs = msg.positionMs,
-                        durationMs = msg.durationMs,
-                        isFinished = msg.isFinished
+                        episodeId = episodeId,
+                        positionMs = currentPos,
+                        durationMs = totalDuration,
+                        isFinished = msg.isFinished || (currentPos >= (totalDuration * 0.95))
                     )
                 }
             }
@@ -219,6 +239,26 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun getWatchHistory(profileId: Int): Flow<List<WatchHistoryEntry>> {
+        return db.watchHistoryDao().getWatchHistory(profileId)
+    }
+
+    fun getWatchStatsForPeriod(profileId: Int, startTimeMs: Long): Flow<WatchStats> {
+        return db.watchHistoryDao().getWatchStatsForPeriod(profileId, startTimeMs)
+    }
+
+    fun deleteHistoryEntry(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.watchHistoryDao().deleteHistoryEntry(id)
+        }
+    }
+
+    fun clearWatchHistory(profileId: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.watchHistoryDao().clearHistoryForProfile(profileId)
+        }
+    }
+
     fun savePlaybackProgress(
         profileId: Int,
         mediaId: String,
@@ -230,7 +270,12 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
 
         if (durationMs <= 0L || positionMs < 0L) return
 
-        viewModelScope.launch {
+        android.util.Log.d(
+            "ScannerViewModel",
+            "savePlaybackProgress: profileId=$profileId, mediaId=$mediaId, episodeId=$episodeId, position=$positionMs/$durationMs"
+        )
+
+        viewModelScope.launch(Dispatchers.IO) {
             db.playbackDao().upsertPlayback(
                 profileId = profileId,
                 mediaId = mediaId,
@@ -239,6 +284,58 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
                 duration = durationMs,
                 isFinished = isFinished
             )
+
+            val isCompleted = isFinished || (positionMs >= (durationMs * 0.90))
+            if (isCompleted) {
+                val tenMinutesAgo = System.currentTimeMillis() - (10 * 60 * 1000L)
+                val recent = db.watchHistoryDao().getRecentHistoryEntry(
+                    profileId = profileId,
+                    mediaItemId = mediaId,
+                    episodeId = episodeId,
+                    sinceTimeMs = tenMinutesAgo
+                )
+
+                if (recent == null) {
+                    val mediaList = db.mediaDao().getAllMediaList()
+                    val mediaItem = mediaList.find { it.id == mediaId }
+
+                    if (mediaItem != null) {
+                        var episode: com.calebms.openflix.data.local.entities.MediaEpisode? = null
+                        if (episodeId != null) {
+                            val epList = db.mediaDao().getEpisodesListForShow(mediaId)
+                            episode = epList.find { it.id == episodeId }
+                        }
+
+                        val videoUriToUse = episode?.localFileUri ?: mediaItem.localUri
+                        val historyKey = "${mediaId}_${episodeId ?: "movie"}_${System.currentTimeMillis()}"
+
+                        val cachedThumb = ThumbnailUtils.cachePermanentHistoryThumbnail(
+                            context = getApplication(),
+                            videoUriString = videoUriToUse,
+                            historyIdKey = historyKey
+                        )
+
+                        val entry = WatchHistoryEntry(
+                            profileId = profileId,
+                            mediaItemId = mediaId,
+                            episodeId = episodeId,
+                            mediaTitle = mediaItem.title,
+                            episodeTitle = episode?.episodeTitle ?: if (episode != null) "Episode ${episode.episodeNumber}" else null,
+                            mediaType = mediaItem.type,
+                            seasonNumber = episode?.seasonNumber,
+                            episodeNumber = episode?.episodeNumber,
+                            durationMs = durationMs,
+                            watchedDurationMs = positionMs,
+                            watchedAt = System.currentTimeMillis(),
+                            cachedThumbPath = cachedThumb ?: episode?.stillPath ?: mediaItem.posterPath,
+                            posterPath = mediaItem.posterPath,
+                            isManualEntry = false
+                        )
+
+                        db.watchHistoryDao().insertHistoryEntry(entry)
+                    }
+                }
+            }
         }
     }
 }

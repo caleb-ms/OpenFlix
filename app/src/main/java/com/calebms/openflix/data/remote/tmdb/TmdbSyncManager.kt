@@ -68,8 +68,6 @@ class TmdbSyncManager(context: Context) {
                 }
             } catch (e: Exception) {
                 Log.e("TmdbSync", "Failed to sync ${item.title}", e)
-
-                mediaDao.insertMediaItems(listOf(item.copy(isTmdbSyncAttempted = true)))
             }
         }
         Log.d("TmdbSync", "syncLibrary completed")
@@ -90,12 +88,12 @@ class TmdbSyncManager(context: Context) {
             
             val updatedItem = item.copy(
                 tmdbId = bestMatch.id,
-                overview = bestMatch.overview,
+                overview = bestMatch.overview ?: item.overview,
                 posterPath = bestMatch.poster_path?.let { "https://image.tmdb.org/t/p/w500$it" } ?: item.posterPath,
-                backdropPath = bestMatch.backdrop_path?.let { "https://image.tmdb.org/t/p/w1280$it" },
-                voteAverage = bestMatch.vote_average,
+                backdropPath = bestMatch.backdrop_path?.let { "https://image.tmdb.org/t/p/w1280$it" } ?: item.backdropPath,
+                voteAverage = bestMatch.vote_average ?: item.voteAverage,
                 releaseYear = item.releaseYear ?: extractedYear,
-                genres = parsedGenres,
+                genres = parsedGenres ?: item.genres,
                 isTmdbSyncAttempted = true
             )
             mediaDao.insertMediaItems(listOf(updatedItem))
@@ -130,12 +128,12 @@ class TmdbSyncManager(context: Context) {
 
         val updatedShow = item.copy(
             tmdbId = bestShowMatch.id,
-            overview = bestShowMatch.overview,
+            overview = bestShowMatch.overview ?: item.overview,
             posterPath = bestShowMatch.poster_path?.let { "https://image.tmdb.org/t/p/w500$it" } ?: item.posterPath,
-            backdropPath = bestShowMatch.backdrop_path?.let { "https://image.tmdb.org/t/p/w1280$it" },
-            voteAverage = bestShowMatch.vote_average,
+            backdropPath = bestShowMatch.backdrop_path?.let { "https://image.tmdb.org/t/p/w1280$it" } ?: item.backdropPath,
+            voteAverage = bestShowMatch.vote_average ?: item.voteAverage,
             releaseYear = item.releaseYear ?: extractedYear,
-            genres = parsedGenres,
+            genres = parsedGenres ?: item.genres,
             isTmdbSyncAttempted = true
         )
         mediaDao.insertMediaItems(listOf(updatedShow))
@@ -165,8 +163,8 @@ class TmdbSyncManager(context: Context) {
                             localEp.copy(
                                 tmdbEpisodeId = tmdbEp.id,
                                 episodeTitle = tmdbEp.name ?: localEp.episodeTitle,
-                                episodeOverview = tmdbEp.overview,
-                                stillPath = tmdbEp.still_path?.let { "https://image.tmdb.org/t/p/w500$it" }
+                                episodeOverview = tmdbEp.overview ?: localEp.episodeOverview,
+                                stillPath = tmdbEp.still_path?.let { "https://image.tmdb.org/t/p/w500$it" } ?: localEp.stillPath
                             )
                         )
                     } else {

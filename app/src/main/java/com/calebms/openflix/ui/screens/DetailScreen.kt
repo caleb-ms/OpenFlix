@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -74,6 +75,21 @@ fun MediaDetailScreen(
         episodes.find { it.id == targetEpisodeId }
     } else null
 
+    val seasons = remember(episodes) {
+        episodes.map { it.seasonNumber }.distinct().sorted()
+    }
+
+    var selectedSeason by remember(seasons) {
+        val initial = resumeEpisode?.seasonNumber ?: seasons.firstOrNull() ?: 1
+        mutableStateOf(if (initial in seasons) initial else (seasons.firstOrNull() ?: 1))
+    }
+
+    val activeSeason = if (selectedSeason in seasons) selectedSeason else (seasons.firstOrNull() ?: 1)
+
+    val seasonEpisodes = remember(episodes, activeSeason) {
+        episodes.filter { it.seasonNumber == activeSeason }.sortedBy { it.episodeNumber }
+    }
+
     val isInspection = LocalInspectionMode.current
 
     // LibVLC preview setup (disabled during Compose Previews to prevent native JNI crashes)
@@ -105,14 +121,22 @@ fun MediaDetailScreen(
     val startMs = if (item.durationMs != null && item.durationMs < idealSeekMs) item.durationMs / 2 else idealSeekMs
     val startSec = startMs / 1000.0
 
+    var isPreviewFrameReady by remember { mutableStateOf(false) }
+
     LaunchedEffect(previewUri, libVLC, previewPlayer) {
         if (!isInspection && libVLC != null && previewPlayer != null && !previewUri.isNullOrBlank()) {
+            isPreviewFrameReady = false
             try {
                 val media = createVlcMedia(context, libVLC, previewUri).apply {
                     addOption(":start-time=$startSec")
                 }
                 previewPlayer.setEventListener { event ->
                     when (event.type) {
+                        MediaPlayer.Event.Vout -> {
+                            if (event.voutCount > 0) {
+                                isPreviewFrameReady = true
+                            }
+                        }
                         MediaPlayer.Event.TimeChanged -> {
                             if (event.timeChanged >= startMs + 30000L) {
                                 previewPlayer.time = startMs
@@ -199,7 +223,11 @@ fun MediaDetailScreen(
                                     previewPlayer.attachViews(layout, null, false, true)
                                 }
                             },
-                            modifier = Modifier.fillMaxSize().background(Color.Transparent)
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    alpha = if (isPreviewFrameReady) 1f else 0f
+                                }
                         )
                     }
 
@@ -364,9 +392,77 @@ fun MediaDetailScreen(
 
             if (item.type == "TV_SHOW" && episodes.isNotEmpty()) {
                 item {
-                    Text("Episodes", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Episodes",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        if (seasons.isNotEmpty()) {
+                            var dropdownExpanded by remember { mutableStateOf(false) }
+
+                            Box {
+                                Surface(
+                                    onClick = { dropdownExpanded = true },
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFF262626),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B3B3B))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Season $activeSeason",
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = "Select Season",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = dropdownExpanded,
+                                    onDismissRequest = { dropdownExpanded = false },
+                                    modifier = Modifier.background(Color(0xFF262626))
+                                ) {
+                                    seasons.forEach { seasonNum ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = "Season $seasonNum",
+                                                    color = if (seasonNum == activeSeason) Color(0xFFE50914) else Color.White,
+                                                    fontWeight = if (seasonNum == activeSeason) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            },
+                                            onClick = {
+                                                selectedSeason = seasonNum
+                                                dropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                items(episodes) { episode ->
+
+                items(seasonEpisodes) { episode ->
                     val epStatus = playbackStatuses.find { it.episodeId == episode.id }
                     EpisodeRow(
                         episode = episode,

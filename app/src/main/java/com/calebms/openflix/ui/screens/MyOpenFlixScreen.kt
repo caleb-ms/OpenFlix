@@ -24,6 +24,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calebms.openflix.data.local.entities.Profile
+import com.calebms.openflix.data.utils.AvatarUtils
 import com.calebms.openflix.viewmodel.ScannerViewModel
 import kotlinx.coroutines.launch
 
@@ -35,12 +36,14 @@ fun MyOpenFlixScreen(
     isScanning: Boolean,
     isSyncing: Boolean,
     onUpdateProfileName: (String) -> Unit,
+    onUpdateProfile: (Profile) -> Unit = {},
     onAddFolderClick: () -> Unit,
     onForceRescanClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSyncMetadataClick: () -> Unit,
     onForceSyncClick: () -> Unit,
-    onCheckForUpdatesClick: () -> Unit
+    onCheckForUpdatesClick: () -> Unit,
+    onWatchHistoryClick: () -> Unit
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -50,6 +53,9 @@ fun MyOpenFlixScreen(
 
     var editName by remember(activeProfile.name) { mutableStateOf(activeProfile.name) }
     val isNameChanged = editName.trim() != activeProfile.name && editName.isNotBlank()
+
+    var showAvatarPicker by remember { mutableStateOf(false) }
+    var currentAvatarName by remember(activeProfile) { mutableStateOf(AvatarUtils.getAvatarName(activeProfile)) }
 
 
     val sharedPrefs = remember { context.getSharedPreferences("openflix_prefs", Context.MODE_PRIVATE) }
@@ -82,7 +88,6 @@ fun MyOpenFlixScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-
         item {
             SettingsCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -90,13 +95,31 @@ fun MyOpenFlixScreen(
                         modifier = Modifier
                             .size(70.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(activeProfile.avatarColorHex)),
+                            .background(Color(activeProfile.avatarColorHex))
+                            .clickable { showAvatarPicker = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = editName.take(1).uppercase(),
-                            color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold
+                        ProfileAvatarImage(
+                            avatarName = currentAvatarName,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(6.dp)
                         )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.3f)),
+                            contentAlignment = Alignment.BottomEnd
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Change Avatar",
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .padding(2.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))
@@ -119,13 +142,42 @@ fun MyOpenFlixScreen(
                 if (isNameChanged) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
-                        onClick = { onUpdateProfileName(editName.trim()) },
+                        onClick = {
+                            val updatedName = editName.trim()
+                            onUpdateProfileName(updatedName)
+                            onUpdateProfile(activeProfile.copy(name = updatedName, avatarName = currentAvatarName))
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                         modifier = Modifier.align(Alignment.End)
                     ) {
                         Text("Save Profile", color = Color.White)
                     }
                 }
+            }
+
+            if (showAvatarPicker) {
+                AvatarSelectionDialog(
+                    selectedAvatarName = currentAvatarName,
+                    onAvatarSelected = { chosen ->
+                        currentAvatarName = chosen
+                        onUpdateProfile(activeProfile.copy(name = editName.trim(), avatarName = chosen))
+                        showAvatarPicker = false
+                    },
+                    onDismiss = { showAvatarPicker = false }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        item {
+            Text("Activity & Stats", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+            SettingsCard {
+                SettingsActionRow(
+                    icon = Icons.Default.History,
+                    title = "Watch History & Stats",
+                    onClick = onWatchHistoryClick
+                )
             }
             Spacer(modifier = Modifier.height(16.dp))
         }

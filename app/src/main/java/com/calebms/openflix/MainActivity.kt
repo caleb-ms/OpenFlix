@@ -91,6 +91,7 @@ fun OpenFlixApp(
             selectedProfile == null -> {
                 ProfileScreen(
                     viewModel = profileViewModel,
+                    scannerViewModel = scannerViewModel,
                     onProfileSelected = { profile ->
                         selectedProfileId = profile.id
                     }

@@ -9,6 +9,9 @@ interface ProfileDao {
     @Query("SELECT * FROM profiles")
     fun getAllProfiles(): Flow<List<Profile>>
 
+    @Query("SELECT * FROM profiles")
+    suspend fun getAllProfilesList(): List<Profile>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProfile(profile: Profile): Long
 
@@ -43,11 +46,20 @@ interface MediaDao {
     @Query("SELECT * FROM media_episodes WHERE mediaItemId = :mediaId")
     suspend fun getEpisodesListForShow(mediaId: String): List<MediaEpisode>
 
+    @Query("SELECT * FROM media_episodes")
+    suspend fun getAllEpisodesList(): List<MediaEpisode>
+
     @Query("UPDATE media_items SET isAvailable = :isAvailable WHERE id = :id")
     suspend fun updateMediaAvailability(id: String, isAvailable: Boolean)
 
     @Query("UPDATE media_episodes SET isAvailable = :isAvailable WHERE id = :id")
     suspend fun updateEpisodeAvailability(id: String, isAvailable: Boolean)
+
+    @Query("DELETE FROM media_episodes WHERE id = :id")
+    suspend fun deleteEpisode(id: String)
+
+    @Query("DELETE FROM media_items WHERE id = :id")
+    suspend fun deleteMediaItem(id: String)
 
     @Query("SELECT * FROM media_items WHERE isAvailable = 1 AND voteAverage >= 7.5 ORDER BY voteAverage DESC LIMIT 15")
     fun getCriticallyAcclaimed(): Flow<List<MediaItem>>
@@ -117,4 +129,55 @@ interface PlaybackDao {
             )
         }
     }
+}
+
+data class WatchStats(
+    val moviesCount: Int,
+    val episodesCount: Int,
+    val totalDurationMs: Long
+)
+
+@Dao
+interface WatchHistoryDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHistoryEntry(entry: WatchHistoryEntry): Long
+
+    @Query("""
+        SELECT * FROM watch_history 
+        WHERE profileId = :profileId 
+        ORDER BY watchedAt DESC
+    """)
+    fun getWatchHistory(profileId: Int): Flow<List<WatchHistoryEntry>>
+
+    @Query("""
+        SELECT 
+            COUNT(CASE WHEN mediaType = 'MOVIE' THEN 1 END) AS moviesCount,
+            COUNT(CASE WHEN mediaType = 'TV_SHOW' THEN 1 END) AS episodesCount,
+            COALESCE(SUM(watchedDurationMs), 0) AS totalDurationMs
+        FROM watch_history 
+        WHERE profileId = :profileId AND watchedAt >= :startTimeMs
+    """)
+    fun getWatchStatsForPeriod(profileId: Int, startTimeMs: Long): Flow<WatchStats>
+
+    @Query("""
+        SELECT * FROM watch_history 
+        WHERE profileId = :profileId 
+        AND mediaItemId = :mediaItemId 
+        AND (episodeId = :episodeId OR (episodeId IS NULL AND :episodeId IS NULL))
+        AND watchedAt >= :sinceTimeMs
+        ORDER BY watchedAt DESC 
+        LIMIT 1
+    """)
+    suspend fun getRecentHistoryEntry(
+        profileId: Int,
+        mediaItemId: String,
+        episodeId: String?,
+        sinceTimeMs: Long
+    ): WatchHistoryEntry?
+
+    @Query("DELETE FROM watch_history WHERE id = :id")
+    suspend fun deleteHistoryEntry(id: Long)
+
+    @Query("DELETE FROM watch_history WHERE profileId = :profileId")
+    suspend fun clearHistoryForProfile(profileId: Int)
 }

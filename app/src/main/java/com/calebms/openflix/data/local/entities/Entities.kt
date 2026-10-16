@@ -11,7 +11,8 @@ data class Profile(
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
     val name: String,
-    val avatarColorHex: Long
+    val avatarColorHex: Long,
+    val avatarName: String? = null
 )
 
 
@@ -97,4 +98,40 @@ data class PlaybackStatus(
     val totalDurationMs: Long,
     val lastWatchedAt: Long = System.currentTimeMillis(),
     val isFinished: Boolean = false
+)
+
+
+@Entity(
+    tableName = "watch_history",
+    foreignKeys = [
+        ForeignKey(
+            entity = Profile::class,
+            parentColumns = ["id"],
+            childColumns = ["profileId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index(value = ["profileId"]),
+        Index(value = ["watchedAt"]),
+        Index(value = ["mediaItemId"])
+    ]
+)
+data class WatchHistoryEntry(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val profileId: Int,
+    val mediaItemId: String,
+    val episodeId: String? = null,
+    val mediaTitle: String,
+    val episodeTitle: String? = null,
+    val mediaType: String,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val durationMs: Long,
+    val watchedDurationMs: Long,
+    val watchedAt: Long = System.currentTimeMillis(),
+    val cachedThumbPath: String? = null,
+    val posterPath: String? = null,
+    val isManualEntry: Boolean = false
 )

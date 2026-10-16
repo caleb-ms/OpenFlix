@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+import com.calebms.openflix.data.utils.AvatarUtils
+
 class ProfileViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
@@ -34,8 +36,14 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
 
     fun createProfile(name: String) {
         viewModelScope.launch {
+            val currentProfiles = profileDao.getAllProfilesList()
+            if (currentProfiles.size >= 5) return@launch
             val randomColor = avatarColors.random()
-            val newProfile = Profile(name = name.trim(), avatarColorHex = randomColor)
+            val newProfile = Profile(
+                name = name.trim(),
+                avatarColorHex = randomColor,
+                avatarName = AvatarUtils.getRandomAvatarName()
+            )
             profileDao.insertProfile(newProfile)
         }
     }
@@ -44,6 +52,12 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
 
             profileDao.insertProfile(profile)
+        }
+    }
+
+    fun deleteProfile(profile: Profile) {
+        viewModelScope.launch {
+            profileDao.deleteProfile(profile)
         }
     }
 }

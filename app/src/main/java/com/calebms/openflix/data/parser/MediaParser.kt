@@ -6,7 +6,8 @@ data class ParsedMediaInfo(
     val releaseYear: Int? = null,
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
-    val resolution: String? = null
+    val resolution: String? = null,
+    val isSample: Boolean = false
 )
 
 object MediaParser {
@@ -30,12 +31,16 @@ object MediaParser {
         "yify", "yts", "eztv", "rarbg", "galaxyrg"
     )
 
+    private val SAMPLE_REGEX = Regex("(?i)(?:^|[._ -])samples?(?:[._ -]|$)")
+
     private val NOISE_REGEX = Regex(
         "(?i)[._ -](${NOISE_TAGS.joinToString("|")})(?:[._ -]|$)"
     )
 
     fun parse(fileName: String): ParsedMediaInfo {
         val nameWithoutExt = fileName.substringBeforeLast(".")
+
+        val isSample = SAMPLE_REGEX.containsMatchIn(nameWithoutExt) || nameWithoutExt.lowercase().contains("sample")
 
         // 1. Check TV patterns
         var season: Int? = null
@@ -108,7 +113,8 @@ object MediaParser {
             releaseYear = year,
             seasonNumber = season,
             episodeNumber = episode,
-            resolution = resolution
+            resolution = resolution,
+            isSample = isSample
         )
     }
 

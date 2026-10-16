@@ -26,11 +26,14 @@ class MediaScanner(private val context: Context) {
             null
         } ?: return@withContext
 
+        val existingMediaMap = db.mediaDao().getAllMediaList().associateBy { it.id }
+        val existingEpisodesMap = db.mediaDao().getAllEpisodesList().associateBy { it.id }
+
         val movies = mutableListOf<MediaItem>()
         val tvShows = mutableMapOf<String, MediaItem>()
         val episodes = mutableListOf<MediaEpisode>()
 
-        scanRecursive(rootDoc, movies, tvShows, episodes)
+        scanRecursive(rootDoc, movies, tvShows, episodes, existingMediaMap, existingEpisodesMap)
 
         db.mediaDao().insertMediaItems(movies + tvShows.values)
         db.mediaDao().insertEpisodes(episodes)
@@ -40,6 +43,13 @@ class MediaScanner(private val context: Context) {
         val mediaItems = db.mediaDao().getAllMediaList()
 
         for (item in mediaItems) {
+            val itemUri = item.localUri
+            val itemFileName = try { Uri.parse(itemUri).lastPathSegment ?: "" } catch (e: Exception) { "" }
+            if (itemUri.lowercase().contains("sample") || MediaParser.parse(itemFileName).isSample) {
+                db.mediaDao().deleteMediaItem(item.id)
+                continue
+            }
+
             val exists = try {
                 val doc = DocumentFile.fromSingleUri(context, Uri.parse(item.localUri))
                 doc?.exists() == true
@@ -54,8 +64,15 @@ class MediaScanner(private val context: Context) {
             if (item.type == "TV_SHOW") {
                 val episodes = db.mediaDao().getEpisodesListForShow(item.id)
                 for (episode in episodes) {
+                    val epUri = episode.localFileUri
+                    val epFileName = try { Uri.parse(epUri).lastPathSegment ?: "" } catch (e: Exception) { "" }
+                    if (epUri.lowercase().contains("sample") || MediaParser.parse(epFileName).isSample) {
+                        db.mediaDao().deleteEpisode(episode.id)
+                        continue
+                    }
+
                     val epExists = try {
-                        val doc = DocumentFile.fromSingleUri(context, Uri.parse(episode.localFileUri))
+                        val doc = DocumentFile.fromSingleUri(context, Uri.parse(epUri))
                         doc?.exists() == true
                     } catch (e: Exception) {
                         false
@@ -69,11 +86,19 @@ class MediaScanner(private val context: Context) {
         }
     }
 
+    private fun isSampleDirectory(dirName: String?): Boolean {
+        if (dirName.isNullOrBlank()) return false
+        val lower = dirName.lowercase()
+        return lower == "sample" || lower == "samples" || lower.contains("sample")
+    }
+
     private suspend fun scanRecursive(
         directory: DocumentFile,
         movies: MutableList<MediaItem>,
         tvShows: MutableMap<String, MediaItem>,
-        episodes: MutableList<MediaEpisode>
+        episodes: MutableList<MediaEpisode>,
+        existingMediaMap: Map<String, MediaItem>,
+        existingEpisodesMap: Map<String, MediaEpisode>
     ) {
         val allFiles = directory.listFiles()
 
@@ -86,68 +111,121 @@ class MediaScanner(private val context: Context) {
 
         allFiles.forEach { file ->
             if (file.isDirectory) {
-                scanRecursive(file, movies, tvShows, episodes)
+                if (isSampleDirectory(file.name)) {
+                    return@forEach
+                }
+                scanRecursive(file, movies, tvShows, episodes, existingMediaMap, existingEpisodesMap)
             } else if (file.isFile) {
                 val ext = file.name?.substringAfterLast(".", "")?.lowercase()
                 if (ext in supportedExtensions) {
                     val parsed = MediaParser.parse(file.name ?: "")
+                    if (parsed.isSample) {
+                        return@forEach
+                    }
 
                     val baseName = file.name?.substringBeforeLast(".") ?: ""
                     val matchingSubtitle = subtitleFiles[baseName]?.uri?.toString()
 
                     if (parsed.isTvShow) {
                         val showKey = parsed.cleanTitle.lowercase()
-                        val showId = tvShows[showKey]?.id ?: UUID.nameUUIDFromBytes(showKey.toByteArray()).toString()
+                        val showId = tvShows[showKey]?.id
+                            ?: existingMediaMap.values.find { it.type == "TV_SHOW" && it.title.lowercase() == showKey }?.id
+                            ?: UUID.nameUUIDFromBytes(showKey.toByteArray()).toString()
+
+                        val existingShow = existingMediaMap[showId]
 
                         if (!tvShows.containsKey(showKey)) {
+                            val extraction = com.calebms.openflix.data.utils.ThumbnailUtils
+                                .extractMediaInfo(context, file.uri, showId)
+
+                            val posterToUse = if (existingShow?.posterPath != null && existingShow.posterPath.startsWith("http")) {
+                                existingShow.posterPath
+                            } else {
+                                extraction.posterPath ?: existingShow?.posterPath
+                            }
+
                             tvShows[showKey] = MediaItem(
                                 id = showId,
-                                title = parsed.cleanTitle,
+                                title = existingShow?.title ?: parsed.cleanTitle,
                                 type = "TV_SHOW",
-                                releaseYear = parsed.releaseYear,
+                                releaseYear = parsed.releaseYear ?: existingShow?.releaseYear,
                                 localUri = directory.uri.toString(),
-                                posterPath = null
+                                posterPath = posterToUse,
+                                overview = existingShow?.overview,
+                                durationMs = extraction.durationMs ?: existingShow?.durationMs,
+                                tmdbId = existingShow?.tmdbId,
+                                backdropPath = existingShow?.backdropPath,
+                                voteAverage = existingShow?.voteAverage,
+                                isTmdbSyncAttempted = existingShow?.isTmdbSyncAttempted ?: false,
+                                isAvailable = true,
+                                subtitleUri = matchingSubtitle ?: existingShow?.subtitleUri,
+                                genres = existingShow?.genres
                             )
+                        } else if (tvShows[showKey]?.posterPath == null) {
+                            val extraction = com.calebms.openflix.data.utils.ThumbnailUtils
+                                .extractMediaInfo(context, file.uri, showId)
+                            val posterToUse = extraction.posterPath ?: existingShow?.posterPath
+                            if (posterToUse != null) {
+                                tvShows[showKey] = tvShows[showKey]!!.copy(posterPath = posterToUse)
+                            }
                         }
 
-
+                        val epId = UUID.nameUUIDFromBytes(file.uri.toString().toByteArray()).toString()
+                        val existingEp = existingEpisodesMap[epId]
                         val extraction = com.calebms.openflix.data.utils.ThumbnailUtils
                             .extractMediaInfo(context, file.uri, showId)
 
-
-                        if (tvShows[showKey]?.posterPath == null && extraction.posterPath != null) {
-                            tvShows[showKey] = tvShows[showKey]!!.copy(posterPath = extraction.posterPath)
+                        val stillToUse = if (existingEp?.stillPath != null && existingEp.stillPath.startsWith("http")) {
+                            existingEp.stillPath
+                        } else {
+                            existingEp?.stillPath
                         }
 
                         episodes.add(
                             MediaEpisode(
-                                id = UUID.nameUUIDFromBytes(file.uri.toString().toByteArray()).toString(),
+                                id = epId,
                                 mediaItemId = showId,
                                 seasonNumber = parsed.seasonNumber ?: 1,
                                 episodeNumber = parsed.episodeNumber ?: 1,
-                                episodeTitle = "Episode ${parsed.episodeNumber}",
+                                episodeTitle = existingEp?.episodeTitle ?: "Episode ${parsed.episodeNumber}",
                                 localFileUri = file.uri.toString(),
-                                durationMs = extraction.durationMs,
-                                subtitleUri = matchingSubtitle
+                                durationMs = extraction.durationMs ?: existingEp?.durationMs,
+                                tmdbEpisodeId = existingEp?.tmdbEpisodeId,
+                                episodeOverview = existingEp?.episodeOverview,
+                                stillPath = stillToUse,
+                                isAvailable = true,
+                                subtitleUri = matchingSubtitle ?: existingEp?.subtitleUri
                             )
                         )
                     } else {
                         val movieId = UUID.nameUUIDFromBytes(file.uri.toString().toByteArray()).toString()
-
-
+                        val existingMovie = existingMediaMap[movieId]
                         val extraction = com.calebms.openflix.data.utils.ThumbnailUtils
                             .extractMediaInfo(context, file.uri, movieId)
+
+                        val posterToUse = if (existingMovie?.posterPath != null && existingMovie.posterPath.startsWith("http")) {
+                            existingMovie.posterPath
+                        } else {
+                            extraction.posterPath ?: existingMovie?.posterPath
+                        }
 
                         movies.add(
                             MediaItem(
                                 id = movieId,
-                                title = parsed.cleanTitle,
+                                title = existingMovie?.title ?: parsed.cleanTitle,
                                 type = "MOVIE",
-                                releaseYear = parsed.releaseYear,
+                                releaseYear = parsed.releaseYear ?: existingMovie?.releaseYear,
                                 localUri = file.uri.toString(),
-                                posterPath = extraction.posterPath,
-                                durationMs = extraction.durationMs,
-                                subtitleUri = matchingSubtitle
+                                posterPath = posterToUse,
+                                overview = existingMovie?.overview,
+                                durationMs = extraction.durationMs ?: existingMovie?.durationMs,
+                                tmdbId = existingMovie?.tmdbId,
+                                backdropPath = existingMovie?.backdropPath,
+                                voteAverage = existingMovie?.voteAverage,
+                                isTmdbSyncAttempted = existingMovie?.isTmdbSyncAttempted ?: false,
+                                isAvailable = true,
+                                subtitleUri = matchingSubtitle ?: existingMovie?.subtitleUri,
+                                genres = existingMovie?.genres
                             )
                         )
                     }

@@ -1,5 +1,6 @@
 package com.calebms.openflix.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -52,6 +53,11 @@ fun SearchScreenContent(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+
+    BackHandler(enabled = searchQuery.isNotEmpty()) {
+        searchQuery = ""
+        focusManager.clearFocus()
+    }
 
     val searchResults = remember(searchQuery, allMedia) {
         if (searchQuery.isBlank()) {
